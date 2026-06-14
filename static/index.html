@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API调试器♿️</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'SF Mono','Menlo','Monaco',monospace;background:#1e1e1e;color:#d4d4d4;min-height:100vh;padding:20px}
+h1{font-size:20px;color:#569cd6;margin-bottom:16px}
+.panel{background:#252526;border:1px solid #3e3e42;border-radius:6px;padding:16px;margin-bottom:16px}
+.panel h2{font-size:14px;color:#888;margin-bottom:12px;cursor:pointer;user-select:none}
+.panel h2:hover{color:#ccc}
+.row{display:flex;gap:8px;margin-bottom:10px}
+textarea,input,select{background:#3c3c3c;color:#d4d4d4;border:1px solid #555;padding:8px 10px;border-radius:4px;font-size:13px;font-family:inherit;outline:none}
+textarea:focus,input:focus,select:focus{border-color:#569cd6}
+input[type="text"]{flex:1}
+select{width:100px}
+textarea{width:100%;min-height:80px;resize:vertical}
+.btn{background:#0e639c;color:#fff;border:none;padding:8px 16px;border-radius:4px;font-size:13px;cursor:pointer;font-weight:600}
+.btn:hover{background:#1177bb}
+.btn-sm{background:#3c3c3c;padding:4px 10px;font-size:12px}
+.collapsible-content{display:block}
+.response-box{background:#1e1e1e;border:1px solid #555;border-radius:4px;padding:12px;min-height:200px;max-height:500px;overflow:auto;font-size:12px;white-space:pre-wrap;word-break:break-all}
+.status-bar{margin-top:8px;font-size:12px;color:#888}
+.json-key{color:#9cdcfe}
+.json-string{color:#ce9178}
+.json-number{color:#b5cea8}
+.json-boolean{color:#569cd6}
+.header-row{display:flex;gap:6px;margin-bottom:6px}
+.header-row input{flex:1}
+.history-item{padding:6px 0;border-bottom:1px solid #333;font-size:12px;cursor:pointer}
+.history-item:hover{background:#2a2d2e}
+.history-method{color:#569cd6;font-weight:600;margin-right:8px}
+.history-url{color:#d4d4d4}
+.history-time{color:#888;float:right}
+</style>
+</head>
+<body>
+<h1>API调试器♿️</h1>
+
+<div class="panel">
+    <h2 onclick="toggle('requestPanel')">请求 ▾</h2>
+    <div id="requestPanel">
+        <div class="row">
+            <select id="method">
+                <option>GET</option>
+                <option>POST</option>
+                <option>PUT</option>
+                <option>DELETE</option>
+            </select>
+            <input type="text" id="url" placeholder="输入 API 地址...">
+            <button class="btn" onclick="send()">发送</button>
+        </div>
+        <h2 onclick="toggle('headersPanel')" style="font-size:12px;margin-top:12px;">Headers ▾</h2>
+        <div id="headersPanel">
+            <div id="headersContainer">
+                <div class="header-row">
+                    <input type="text" placeholder="Header Name" class="header-name">
+                    <input type="text" placeholder="Header Value" class="header-value">
+                </div>
+            </div>
+            <button class="btn btn-sm" onclick="addHeader()">+ 添加</button>
+        </div>
+        <h2 onclick="toggle('bodyPanel')" style="font-size:12px;margin-top:12px;">Body ▾</h2>
+        <div id="bodyPanel">
+            <textarea id="body" placeholder="请求体 (JSON/XML/Text)"></textarea>
+        </div>
+    </div>
+</div>
+
+<div class="panel">
+    <h2>响应</h2>
+    <div class="response-box" id="response">等待请求...</div>
+    <div class="status-bar" id="statusBar"></div>
+</div>
+
+<div class="panel">
+    <h2>历史记录</h2>
+    <div id="historyList"></div>
+</div>
+
+<script>
+let history=[];
+
+function toggle(id){
+    let el=document.getElementById(id);
+    el.style.display=el.style.display==='none'?'block':'none';
+}
+
+function addHeader(){
+    let container=document.getElementById('headersContainer');
+    let row=document.createElement('div');
+    row.className='header-row';
+    row.innerHTML='<input type="text" placeholder="Header Name" class="header-name"><input type="text" placeholder="Header Value" class="header-value">';
+    container.appendChild(row);
+}
+
+async function send(){
+    let method=document.getElementById('method').value;
+    let url=document.getElementById('url').value;
+    let body=document.getElementById('body').value;
+
+    let headers={};
+    document.querySelectorAll('.header-row').forEach(row=>{
+        let name=row.querySelector('.header-name').value.trim();
+        let value=row.querySelector('.header-value').value.trim();
+        if(name && value) headers[name]=value;
+    });
+
+    document.getElementById('response').textContent='♿️发送中...♿️';
+
+    let resp=await fetch('/api/send',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({method,url,headers,body:body||null})
+    });
+
+    let data=await resp.json();
+    document.getElementById('response').innerHTML=syntaxHighlight(JSON.stringify(JSON.parse(data.body||'{}'),null,2));
+    document.getElementById('statusBar').textContent=`状态: ${data.status} | 耗时: ${data.elapsed_ms}ms | 大小: ${data.body.length}字节`;
+    addHistory(method,url,data.status,data.elapsed_ms);
+}
+
+function syntaxHighlight(json){
+    return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,function(m){
+        let cls='json-number';
+        if(/^"/.test(m)){cls=/:$/.test(m)?'json-key':'json-string';}
+        else if(/true|false/.test(m)){cls='json-boolean';}
+        else if(/null/.test(m)){cls='json-number';}
+        return `<span class="${cls}">${m}</span>`;
+    });
+}
+
+function addHistory(method,url,status,time){
+    history.unshift({method,url,status,time:new Date().toLocaleTimeString()});
+    if(history.length>20) history.pop();
+    let list=document.getElementById('historyList');
+    list.innerHTML=history.map(h=>`
+        <div class="history-item" onclick="loadHistory('${h.method}','${h.url}')">
+            <span class="history-method">${h.method}</span>
+            <span class="history-url">${h.url}</span>
+            <span class="history-time">${h.time}</span>
+        </div>
+    `).join('');
+}
+
+function loadHistory(method,url){
+    document.getElementById('method').value=method;
+    document.getElementById('url').value=url;
+    send();
+}
+</script>
+</body>
+</html>

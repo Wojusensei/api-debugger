@@ -32,7 +32,7 @@ cargo run --release
 
 ### 4.技术栈
 
-Rust - 怎么你了😡
+Rust - 后端
 
 Axum - Web 框架
 

@@ -52,11 +52,9 @@ api-debugger/
 ├── README.md
 
 ├── src/
-
 │   └── main.rs      
 
 └── static/
-
     └── index.html       
 
 

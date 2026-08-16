@@ -6,11 +6,13 @@
 ## ✨ 功能
 
 - 发送 GET / POST / PUT / DELETE 请求
-- 自定义 Headers 和 Body
+- 自定义 Headers 和 Body（标签页切换，可增删行）
 - JSON 响应自动格式化，语法高亮
-- 请求历史记录
+- 响应体 / 响应头标签页查看
+- 请求与响应左右分栏布局
+- 请求历史记录本地持久化（localStorage），点击回填完整请求
+- Cmd/Ctrl + Enter 快捷发送
 - Web 前端界面
-- 数据本地存储
 
 ## 📦 快速开始
 
@@ -24,7 +26,6 @@ cd api-debugger
 ### 2.编译运行
 
 ```bash
-cargo build --release
 cargo run --release
 ```
 

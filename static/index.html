@@ -6,150 +6,276 @@
 <title>API调试器♿️</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'SF Mono','Menlo','Monaco',monospace;background:#1e1e1e;color:#d4d4d4;min-height:100vh;padding:20px}
-h1{font-size:20px;color:#569cd6;margin-bottom:16px}
-.panel{background:#252526;border:1px solid #3e3e42;border-radius:6px;padding:16px;margin-bottom:16px}
-.panel h2{font-size:14px;color:#888;margin-bottom:12px;cursor:pointer;user-select:none}
-.panel h2:hover{color:#ccc}
-.row{display:flex;gap:8px;margin-bottom:10px}
+body{font-family:'SF Mono','Menlo','Monaco',monospace;background:#1e1e1e;color:#d4d4d4;min-height:100vh;display:flex;flex-direction:column;gap:16px;padding:20px}
+h1{font-size:20px;color:#569cd6}
+.panel{background:#252526;border:1px solid #3e3e42;border-radius:6px;padding:16px}
+.panel-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.panel-head h2{font-size:14px;color:#888;cursor:pointer;user-select:none}
+.panel-head h2:hover{color:#ccc}
+.row{display:flex;gap:8px}
 textarea,input,select{background:#3c3c3c;color:#d4d4d4;border:1px solid #555;padding:8px 10px;border-radius:4px;font-size:13px;font-family:inherit;outline:none}
 textarea:focus,input:focus,select:focus{border-color:#569cd6}
-input[type="text"]{flex:1}
-select{width:100px}
-textarea{width:100%;min-height:80px;resize:vertical}
+input[type="text"]{flex:1;min-width:0}
+select{width:100px;flex:none}
+textarea{width:100%;flex:1;min-height:160px;resize:vertical}
 .btn{background:#0e639c;color:#fff;border:none;padding:8px 16px;border-radius:4px;font-size:13px;cursor:pointer;font-weight:600}
 .btn:hover{background:#1177bb}
-.btn-sm{background:#3c3c3c;padding:4px 10px;font-size:12px}
-.collapsible-content{display:block}
-.response-box{background:#1e1e1e;border:1px solid #555;border-radius:4px;padding:12px;min-height:200px;max-height:500px;overflow:auto;font-size:12px;white-space:pre-wrap;word-break:break-all}
+.btn-sm{background:#3c3c3c;padding:4px 10px;font-size:12px;font-weight:400}
+.btn-sm:hover{background:#4a4a4a}
+.workspace{display:flex;gap:16px;margin-top:14px;align-items:stretch}
+.col{display:flex;flex-direction:column;min-width:0}
+.col-request{flex:2}
+.col-response{flex:3}
+.tabs{display:flex;gap:4px;border-bottom:1px solid #3e3e42;margin-bottom:12px}
+.tab{padding:6px 12px;font-size:12px;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;user-select:none}
+.tab:hover{color:#ccc}
+.tab.active{color:#d4d4d4;border-bottom-color:#569cd6}
+.tab-body{flex:1;display:flex;flex-direction:column;min-height:220px}
+#headersContainer{flex:1;overflow:auto}
+#req-body-panel textarea{min-height:220px}
+.header-row{display:flex;gap:6px;margin-bottom:6px}
+.header-row input{flex:1;min-width:0}
+.del-btn{background:#3c3c3c;border:1px solid #555;color:#888;width:32px;flex:none;border-radius:4px;cursor:pointer;font-size:12px}
+.del-btn:hover{color:#f48771;border-color:#f48771}
+.response-box{background:#1e1e1e;border:1px solid #555;border-radius:4px;padding:12px;flex:1;overflow:auto;font-size:12px;white-space:pre-wrap;word-break:break-all}
 .status-bar{margin-top:8px;font-size:12px;color:#888}
+.status-ok{color:#b5cea8;font-weight:600}
+.status-err{color:#f48771;font-weight:600}
 .json-key{color:#9cdcfe}
 .json-string{color:#ce9178}
 .json-number{color:#b5cea8}
 .json-boolean{color:#569cd6}
-.header-row{display:flex;gap:6px;margin-bottom:6px}
-.header-row input{flex:1}
-.history-item{padding:6px 0;border-bottom:1px solid #333;font-size:12px;cursor:pointer}
+.hdr-line{display:flex;gap:8px;margin-bottom:4px}
+.hdr-line .hdr-val{color:#d4d4d4;word-break:break-all}
+.history-item{display:flex;gap:8px;align-items:baseline;padding:6px 4px;border-bottom:1px solid #333;font-size:12px;cursor:pointer}
 .history-item:hover{background:#2a2d2e}
-.history-method{color:#569cd6;font-weight:600;margin-right:8px}
-.history-url{color:#d4d4d4}
-.history-time{color:#888;float:right}
+.history-method{color:#569cd6;font-weight:600;flex:none}
+.history-url{color:#d4d4d4;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.history-status{flex:none}
+.history-time{color:#888;flex:none}
+.history-empty{color:#888;font-size:12px;padding:4px 0}
+@media (max-width:800px){.workspace{flex-direction:column}}
 </style>
 </head>
 <body>
 <h1>API调试器♿️</h1>
 
 <div class="panel">
-    <h2 onclick="toggle('requestPanel')">请求 ▾</h2>
-    <div id="requestPanel">
-        <div class="row">
-            <select id="method">
-                <option>GET</option>
-                <option>POST</option>
-                <option>PUT</option>
-                <option>DELETE</option>
-            </select>
-            <input type="text" id="url" placeholder="输入 API 地址...">
-            <button class="btn" onclick="send()">发送</button>
-        </div>
-        <h2 onclick="toggle('headersPanel')" style="font-size:12px;margin-top:12px;">Headers ▾</h2>
-        <div id="headersPanel">
-            <div id="headersContainer">
-                <div class="header-row">
-                    <input type="text" placeholder="Header Name" class="header-name">
-                    <input type="text" placeholder="Header Value" class="header-value">
-                </div>
+    <div class="row">
+        <select id="method">
+            <option>GET</option>
+            <option>POST</option>
+            <option>PUT</option>
+            <option>DELETE</option>
+        </select>
+        <input type="text" id="url" placeholder="输入 API 地址...">
+        <button class="btn" onclick="send()">发送</button>
+    </div>
+    <div class="workspace">
+        <div class="col col-request">
+            <div class="tabs">
+                <div class="tab active" id="req-tab-headers" onclick="switchTab('req','headers')">Headers</div>
+                <div class="tab" id="req-tab-body" onclick="switchTab('req','body')">Body</div>
             </div>
-            <button class="btn btn-sm" onclick="addHeader()">+ 添加</button>
+            <div class="tab-body" id="req-headers-panel">
+                <div id="headersContainer"></div>
+                <button class="btn btn-sm" style="margin-top:8px;align-self:flex-start" onclick="addHeader()">+ 添加</button>
+            </div>
+            <div class="tab-body" id="req-body-panel" hidden>
+                <textarea id="body" placeholder="请求体 (JSON/XML/Text)"></textarea>
+            </div>
         </div>
-        <h2 onclick="toggle('bodyPanel')" style="font-size:12px;margin-top:12px;">Body ▾</h2>
-        <div id="bodyPanel">
-            <textarea id="body" placeholder="请求体 (JSON/XML/Text)"></textarea>
+        <div class="col col-response">
+            <div class="tabs">
+                <div class="tab active" id="resp-tab-body" onclick="switchTab('resp','body')">响应体</div>
+                <div class="tab" id="resp-tab-headers" onclick="switchTab('resp','headers')">响应头</div>
+            </div>
+            <div class="tab-body" id="resp-body-panel">
+                <div class="response-box" id="response">等待请求...</div>
+            </div>
+            <div class="tab-body" id="resp-headers-panel" hidden>
+                <div class="response-box" id="respHeaders">暂无响应头</div>
+            </div>
+            <div class="status-bar" id="statusBar"></div>
         </div>
     </div>
 </div>
 
 <div class="panel">
-    <h2>响应</h2>
-    <div class="response-box" id="response">等待请求...</div>
-    <div class="status-bar" id="statusBar"></div>
-</div>
-
-<div class="panel">
-    <h2>历史记录</h2>
-    <div id="historyList"></div>
+    <div class="panel-head">
+        <h2 onclick="toggle('historyPanel',this)">历史记录 ▾</h2>
+        <button class="btn btn-sm" onclick="clearHistory()">清空</button>
+    </div>
+    <div id="historyPanel">
+        <div id="historyList"></div>
+    </div>
 </div>
 
 <script>
+const $=id=>document.getElementById(id);
+const HISTORY_KEY='apiDebuggerHistory';
 let history=[];
+try{history=JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]')}catch(e){history=[]}
 
-function toggle(id){
-    let el=document.getElementById(id);
-    el.style.display=el.style.display==='none'?'block':'none';
+function toggle(id,heading){
+    let el=$(id);
+    let hidden=el.style.display==='none';
+    el.style.display=hidden?'block':'none';
+    heading.textContent=heading.textContent.replace(hidden?'▸':'▾',hidden?'▾':'▸');
 }
 
-function addHeader(){
-    let container=document.getElementById('headersContainer');
-    let row=document.createElement('div');
-    row.className='header-row';
-    row.innerHTML='<input type="text" placeholder="Header Name" class="header-name"><input type="text" placeholder="Header Value" class="header-value">';
-    container.appendChild(row);
+function switchTab(group,name){
+    ['headers','body'].forEach(t=>{
+        $(`tab-${group}-${t}`).classList.toggle('active',t===name);
+        $(`${group}-${t}-panel`).hidden=t!==name;
+    });
 }
 
-async function send(){
-    let method=document.getElementById('method').value;
-    let url=document.getElementById('url').value;
-    let body=document.getElementById('body').value;
+function headerRow(name='',value=''){
+    return `<div class="header-row">
+        <input type="text" placeholder="Header Name" class="header-name" value="${escAttr(name)}">
+        <input type="text" placeholder="Header Value" class="header-value" value="${escAttr(value)}">
+        <button class="del-btn" onclick="removeHeader(this)">✕</button>
+    </div>`;
+}
 
+function addHeader(name='',value=''){
+    $('headersContainer').insertAdjacentHTML('beforeend',headerRow(name,value));
+}
+
+function removeHeader(btn){
+    btn.closest('.header-row').remove();
+}
+
+function collectHeaders(){
     let headers={};
     document.querySelectorAll('.header-row').forEach(row=>{
         let name=row.querySelector('.header-name').value.trim();
         let value=row.querySelector('.header-value').value.trim();
-        if(name && value) headers[name]=value;
+        if(name&&value)headers[name]=value;
     });
+    return headers;
+}
 
-    document.getElementById('response').textContent='♿️发送中...♿️';
+async function send(){
+    let method=$('method').value;
+    let url=$('url').value.trim();
+    if(!url){setResponse('♿️ 请输入 URL ♿️');return}
 
-    let resp=await fetch('/api/send',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({method,url,headers,body:body||null})
-    });
+    let headers=collectHeaders();
+    let body=$('body').value;
 
-    let data=await resp.json();
-    document.getElementById('response').innerHTML=syntaxHighlight(JSON.stringify(JSON.parse(data.body||'{}'),null,2));
-    document.getElementById('statusBar').textContent=`状态: ${data.status} | 耗时: ${data.elapsed_ms}ms | 大小: ${data.body.length}字节`;
-    addHistory(method,url,data.status,data.elapsed_ms);
+    setResponse('♿️发送中...♿️');
+    $('statusBar').textContent='';
+
+    try{
+        let resp=await fetch('/api/send',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({method,url,headers,body:body||null})
+        });
+        if(!resp.ok)throw new Error('代理返回 '+resp.status);
+        let data=await resp.json();
+        showResponse(data);
+        addHistory(method,url,headers,body,data.status,data.elapsed_ms);
+    }catch(e){
+        setResponse('♿️ 请求失败: '+e.message+' ♿️');
+    }
+}
+
+function showResponse(data){
+    try{
+        let json=JSON.stringify(JSON.parse(data.body),null,2);
+        setResponseHTML(syntaxHighlight(json));
+    }catch(e){
+        setResponse(data.body||'(空响应体)');
+    }
+    let entries=Object.entries(data.headers||{});
+    $('respHeaders').innerHTML=entries.length
+        ?entries.map(([k,v])=>`<div class="hdr-line"><span class="json-key">${esc(k)}:</span><span class="hdr-val">${esc(v)}</span></div>`).join('')
+        :'暂无响应头';
+    let cls=data.status<400?'status-ok':'status-err';
+    $('statusBar').innerHTML=`状态: <span class="${cls}">${data.status}</span> | 耗时: ${data.elapsed_ms}ms | 大小: ${fmtSize(data.body.length)}`;
+}
+
+function setResponse(text){
+    $('response').textContent=text;
+}
+
+function setResponseHTML(html){
+    $('response').innerHTML=html;
+}
+
+function fmtSize(n){
+    if(n<1024)return n+' 字节';
+    if(n<1024*1024)return (n/1024).toFixed(1)+'KB';
+    return (n/1024/1024).toFixed(2)+'MB';
 }
 
 function syntaxHighlight(json){
     return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,function(m){
         let cls='json-number';
-        if(/^"/.test(m)){cls=/:$/.test(m)?'json-key':'json-string';}
-        else if(/true|false/.test(m)){cls='json-boolean';}
-        else if(/null/.test(m)){cls='json-number';}
-        return `<span class="${cls}">${m}</span>`;
+        if(/^"/.test(m)){cls=/:$/.test(m)?'json-key':'json-string'}
+        else if(/true|false/.test(m)){cls='json-boolean'}
+        return `<span class="${cls}">${esc(m)}</span>`;
     });
 }
 
-function addHistory(method,url,status,time){
-    history.unshift({method,url,status,time:new Date().toLocaleTimeString()});
-    if(history.length>20) history.pop();
-    let list=document.getElementById('historyList');
-    list.innerHTML=history.map(h=>`
-        <div class="history-item" onclick="loadHistory('${h.method}','${h.url}')">
-            <span class="history-method">${h.method}</span>
-            <span class="history-url">${h.url}</span>
-            <span class="history-time">${h.time}</span>
-        </div>
-    `).join('');
+function esc(s){
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-function loadHistory(method,url){
-    document.getElementById('method').value=method;
-    document.getElementById('url').value=url;
-    send();
+function escAttr(s){
+    return esc(s).replace(/"/g,'&quot;');
 }
+
+function addHistory(method,url,headers,body,status,elapsed){
+    history.unshift({method,url,headers,body,status,elapsed,time:new Date().toLocaleTimeString()});
+    if(history.length>20)history.pop();
+    saveHistory();
+    renderHistory();
+}
+
+function loadHistory(i){
+    let h=history[i];
+    if(!h)return;
+    $('method').value=h.method;
+    $('url').value=h.url;
+    $('body').value=h.body||'';
+    $('headersContainer').innerHTML='';
+    let entries=Object.entries(h.headers||{});
+    if(entries.length){entries.forEach(([k,v])=>addHeader(k,v))}
+    else{addHeader()}
+}
+
+function clearHistory(){
+    history=[];
+    saveHistory();
+    renderHistory();
+}
+
+function saveHistory(){
+    try{localStorage.setItem(HISTORY_KEY,JSON.stringify(history))}catch(e){}
+}
+
+function renderHistory(){
+    $('historyList').innerHTML=history.length
+        ?history.map((h,i)=>`
+            <div class="history-item" onclick="loadHistory(${i})">
+                <span class="history-method">${h.method}</span>
+                <span class="history-url">${esc(h.url)}</span>
+                <span class="history-status ${h.status<400?'status-ok':'status-err'}">${h.status}</span>
+                <span class="history-time">${h.time}</span>
+            </div>`).join('')
+        :'<div class="history-empty">暂无历史记录</div>';
+}
+
+document.addEventListener('keydown',e=>{
+    if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();send()}
+});
+
+addHeader();
+renderHistory();
 </script>
 </body>
 </html>

@@ -3,11 +3,10 @@
 // ====================
 
 use axum::{
-    extract::Json as AxumJson,
-    extract::Query,
+    extract::{Json as AxumJson, Query, State},
     http::StatusCode,
     response::Json,
-    routing::{get, post},
+    routing::get,
     Router,
 };
 use reqwest::Client;
@@ -15,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Instant;
 use tower_http::services::ServeDir;
 
 // ====================
@@ -46,21 +46,20 @@ struct AppState {
 }
 
 // ====================
-// POST 请求处理
+// 请求执行（公共逻辑）
 // ====================
 
-async fn send_request_post(
-    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
-    AxumJson(req): AxumJson<ApiRequest>,
-) -> Result<Json<ApiResponse>, StatusCode> {
+async fn execute_request(
+    client: &Client,
+    req: &ApiRequest,
+) -> Result<ApiResponse, StatusCode> {
     let method = req.method.to_uppercase();
-    let url = req.url;
 
     let mut req_builder = match method.as_str() {
-        "GET" => state.client.get(&url),
-        "POST" => state.client.post(&url),
-        "PUT" => state.client.put(&url),
-        "DELETE" => state.client.delete(&url),
+        "GET" => client.get(&req.url),
+        "POST" => client.post(&req.url),
+        "PUT" => client.put(&req.url),
+        "DELETE" => client.delete(&req.url),
         _ => return Err(StatusCode::BAD_REQUEST),
     };
 
@@ -69,12 +68,14 @@ async fn send_request_post(
     }
 
     if let Some(body) = &req.body {
-        req_builder = req_builder.body(body.clone());
+        if !body.is_empty() {
+            req_builder = req_builder.body(body.clone());
+        }
     }
 
-    let start = std::time::Instant::now();
+    let start = Instant::now();
     let resp = req_builder.send().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
-    let elapsed = start.elapsed().as_millis() as u64;
+    let elapsed_ms = start.elapsed().as_millis() as u64;
 
     let status = resp.status().as_u16();
     let headers = resp
@@ -84,12 +85,23 @@ async fn send_request_post(
         .collect();
     let body = resp.text().await.unwrap_or_default();
 
-    Ok(Json(ApiResponse {
+    Ok(ApiResponse {
         status,
         headers,
         body,
-        elapsed_ms: elapsed,
-    }))
+        elapsed_ms,
+    })
+}
+
+// ====================
+// POST 请求处理
+// ====================
+
+async fn send_request_post(
+    State(state): State<Arc<AppState>>,
+    AxumJson(req): AxumJson<ApiRequest>,
+) -> Result<Json<ApiResponse>, StatusCode> {
+    execute_request(&state.client, &req).await.map(Json)
 }
 
 // ====================
@@ -98,37 +110,16 @@ async fn send_request_post(
 
 async fn send_request_get(
     Query(params): Query<HashMap<String, String>>,
-    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
 ) -> Result<Json<ApiResponse>, StatusCode> {
-    let method = params.get("method").cloned().unwrap_or("GET".into());
-    let url = params.get("url").cloned().unwrap_or_default();
-
-    let req_builder = match method.as_str() {
-        "GET" => state.client.get(&url),
-        "POST" => state.client.post(&url),
-        "PUT" => state.client.put(&url),
-        "DELETE" => state.client.delete(&url),
-        _ => return Err(StatusCode::BAD_REQUEST),
+    let req = ApiRequest {
+        method: params.get("method").cloned().unwrap_or_else(|| "GET".into()),
+        url: params.get("url").cloned().unwrap_or_default(),
+        headers: HashMap::new(),
+        body: None,
     };
 
-    let start = std::time::Instant::now();
-    let resp = req_builder.send().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
-    let elapsed = start.elapsed().as_millis() as u64;
-
-    let status = resp.status().as_u16();
-    let headers = resp
-        .headers()
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
-        .collect();
-    let body = resp.text().await.unwrap_or_default();
-
-    Ok(Json(ApiResponse {
-        status,
-        headers,
-        body,
-        elapsed_ms: elapsed,
-    }))
+    execute_request(&state.client, &req).await.map(Json)
 }
 
 // ====================

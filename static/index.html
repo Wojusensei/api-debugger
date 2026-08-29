@@ -126,7 +126,7 @@ function toggle(id,heading){
 
 function switchTab(group,name){
     ['headers','body'].forEach(t=>{
-        $(`tab-${group}-${t}`).classList.toggle('active',t===name);
+        $(`${group}-tab-${t}`).classList.toggle('active',t===name);
         $(`${group}-${t}-panel`).hidden=t!==name;
     });
 }

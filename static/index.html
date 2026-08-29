@@ -152,7 +152,7 @@ function collectHeaders(){
     document.querySelectorAll('.header-row').forEach(row=>{
         let name=row.querySelector('.header-name').value.trim();
         let value=row.querySelector('.header-value').value.trim();
-        if(name&&value)headers[name]=value;
+        if(name)headers[name]=value;
     });
     return headers;
 }
@@ -195,7 +195,7 @@ function showResponse(data){
         ?entries.map(([k,v])=>`<div class="hdr-line"><span class="json-key">${esc(k)}:</span><span class="hdr-val">${esc(v)}</span></div>`).join('')
         :'暂无响应头';
     let cls=data.status<400?'status-ok':'status-err';
-    $('statusBar').innerHTML=`状态: <span class="${cls}">${data.status}</span> | 耗时: ${data.elapsed_ms}ms | 大小: ${fmtSize(data.body.length)}`;
+    $('statusBar').innerHTML=`状态: <span class="${cls}">${data.status}</span> | 耗时: ${data.elapsed_ms}ms | 大小: ${fmtSize(byteLen(data.body))}`;
 }
 
 function setResponse(text){
@@ -210,6 +210,10 @@ function fmtSize(n){
     if(n<1024)return n+' 字节';
     if(n<1024*1024)return (n/1024).toFixed(1)+'KB';
     return (n/1024/1024).toFixed(2)+'MB';
+}
+
+function byteLen(s){
+    return new TextEncoder().encode(s).length;
 }
 
 function syntaxHighlight(json){

@@ -5,11 +5,14 @@
 use axum::{
     extract::{Json as AxumJson, Query, State},
     http::StatusCode,
-    response::Json,
+    response::{IntoResponse, Json, Response},
     routing::get,
     Router,
 };
-use reqwest::Client;
+use reqwest::{
+    header::{HeaderName, HeaderValue},
+    Client, Method, Url,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -46,25 +49,68 @@ struct AppState {
 }
 
 // ====================
+// 错误类型（携带可读信息返回给前端）
+// ====================
+
+struct ApiError {
+    status: StatusCode,
+    message: String,
+}
+
+impl ApiError {
+    fn bad_request(msg: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            message: msg.into(),
+        }
+    }
+
+    fn bad_gateway(msg: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_GATEWAY,
+            message: msg.into(),
+        }
+    }
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        (
+            self.status,
+            Json(serde_json::json!({ "error": self.message })),
+        )
+            .into_response()
+    }
+}
+
+// ====================
 // 请求执行（公共逻辑）
 // ====================
 
 async fn execute_request(
     client: &Client,
     req: &ApiRequest,
-) -> Result<ApiResponse, StatusCode> {
-    let method = req.method.to_uppercase();
+) -> Result<ApiResponse, ApiError> {
+    let method = Method::from_bytes(req.method.to_uppercase().as_bytes())
+        .map_err(|e| ApiError::bad_request(format!("无效的 HTTP 方法 `{}`: {e}", req.method)))?;
 
-    let mut req_builder = match method.as_str() {
-        "GET" => client.get(&req.url),
-        "POST" => client.post(&req.url),
-        "PUT" => client.put(&req.url),
-        "DELETE" => client.delete(&req.url),
-        _ => return Err(StatusCode::BAD_REQUEST),
-    };
+    let url = Url::parse(&req.url)
+        .map_err(|e| ApiError::bad_request(format!("URL 无效 `{}`: {e}", req.url)))?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(ApiError::bad_request(format!(
+            "仅支持 http/https 协议，收到 `{}`",
+            url.scheme()
+        )));
+    }
+
+    let mut req_builder = client.request(method, url);
 
     for (key, value) in &req.headers {
-        req_builder = req_builder.header(key.as_str(), value.as_str());
+        let name = HeaderName::try_from(key.as_str())
+            .map_err(|e| ApiError::bad_request(format!("无效的请求头名称 `{key}`: {e}")))?;
+        let value = HeaderValue::from_str(value)
+            .map_err(|e| ApiError::bad_request(format!("无效的请求头值 `{key}`: {e}")))?;
+        req_builder = req_builder.header(name, value);
     }
 
     if let Some(body) = &req.body {
@@ -74,7 +120,10 @@ async fn execute_request(
     }
 
     let start = Instant::now();
-    let resp = req_builder.send().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let resp = req_builder
+        .send()
+        .await
+        .map_err(|e| ApiError::bad_gateway(format!("请求目标失败: {e}")))?;
 
     let status = resp.status().as_u16();
     // Vec 保留同名头的多次出现（如多个 Set-Cookie），HashMap 会互相覆盖
@@ -83,7 +132,10 @@ async fn execute_request(
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
         .collect();
-    let body = resp.text().await.unwrap_or_default();
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| ApiError::bad_gateway(format!("读取响应体失败: {e}")))?;
     // 计时覆盖到响应体读取完成，而不仅是收到响应头
     let elapsed_ms = start.elapsed().as_millis() as u64;
 
@@ -102,7 +154,7 @@ async fn execute_request(
 async fn send_request_post(
     State(state): State<Arc<AppState>>,
     AxumJson(req): AxumJson<ApiRequest>,
-) -> Result<Json<ApiResponse>, StatusCode> {
+) -> Result<Json<ApiResponse>, ApiError> {
     execute_request(&state.client, &req).await.map(Json)
 }
 
@@ -113,7 +165,7 @@ async fn send_request_post(
 async fn send_request_get(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<Arc<AppState>>,
-) -> Result<Json<ApiResponse>, StatusCode> {
+) -> Result<Json<ApiResponse>, ApiError> {
     let req = ApiRequest {
         method: params.get("method").cloned().unwrap_or_else(|| "GET".into()),
         url: params.get("url").cloned().unwrap_or_default(),

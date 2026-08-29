@@ -233,8 +233,14 @@ function escAttr(s){
     return esc(s).replace(/"/g,'&quot;');
 }
 
+const SENSITIVE_HEADERS=/^(authorization|proxy-authorization|cookie|x-api-key)$/i;
+
 function addHistory(method,url,headers,body,status,elapsed){
-    history.unshift({method,url,headers,body,status,elapsed,time:new Date().toLocaleTimeString()});
+    let safeHeaders={};
+    Object.entries(headers||{}).forEach(([k,v])=>{
+        if(!SENSITIVE_HEADERS.test(k))safeHeaders[k]=v;
+    });
+    history.unshift({method,url,headers:safeHeaders,body,status,elapsed,time:new Date().toLocaleTimeString()});
     if(history.length>20)history.pop();
     saveHistory();
     renderHistory();

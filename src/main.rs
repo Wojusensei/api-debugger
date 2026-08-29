@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tower_http::services::ServeDir;
 
 // ====================
@@ -128,18 +128,38 @@ async fn send_request_get(
 
 #[tokio::main]
 async fn main() {
-    let state = Arc::new(AppState {
-        client: Client::new(),
-    });
+    let client = Client::builder()
+        .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(10))
+        .user_agent("api-debugger/0.1")
+        .build()
+        .expect("构建 HTTP 客户端失败");
+
+    let state = Arc::new(AppState { client });
+
+    let static_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("static");
 
     let app = Router::new()
         .route("/api/send", get(send_request_get).post(send_request_post))
-        .fallback_service(ServeDir::new("static"))
+        .fallback_service(ServeDir::new(static_dir))
         .with_state(state);
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 5000));
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(5000);
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
     println!("[*] API 调试器已启动♿️: http://{}", addr);
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!(
+                "[!] 监听 {} 失败: {}（macOS 上 5000 端口常被 AirPlay 接收器占用，可用 PORT=5050 cargo run --release 换端口）",
+                addr, e
+            );
+            std::process::exit(1);
+        }
+    };
     axum::serve(listener, app).await.unwrap();
 }

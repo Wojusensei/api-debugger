@@ -190,7 +190,7 @@ function showResponse(data){
     }catch(e){
         setResponse(data.body||'(空响应体)');
     }
-    let entries=Object.entries(data.headers||{});
+    let entries=Array.isArray(data.headers)?data.headers:Object.entries(data.headers||{});
     $('respHeaders').innerHTML=entries.length
         ?entries.map(([k,v])=>`<div class="hdr-line"><span class="json-key">${esc(k)}:</span><span class="hdr-val">${esc(v)}</span></div>`).join('')
         :'暂无响应头';

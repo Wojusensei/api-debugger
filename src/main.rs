@@ -32,7 +32,7 @@ struct ApiRequest {
 #[derive(Serialize, Deserialize)]
 struct ApiResponse {
     status: u16,
-    headers: HashMap<String, String>,
+    headers: Vec<(String, String)>,
     body: String,
     elapsed_ms: u64,
 }
@@ -75,15 +75,17 @@ async fn execute_request(
 
     let start = Instant::now();
     let resp = req_builder.send().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
-    let elapsed_ms = start.elapsed().as_millis() as u64;
 
     let status = resp.status().as_u16();
+    // Vec 保留同名头的多次出现（如多个 Set-Cookie），HashMap 会互相覆盖
     let headers = resp
         .headers()
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
         .collect();
     let body = resp.text().await.unwrap_or_default();
+    // 计时覆盖到响应体读取完成，而不仅是收到响应头
+    let elapsed_ms = start.elapsed().as_millis() as u64;
 
     Ok(ApiResponse {
         status,

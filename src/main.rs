@@ -3,10 +3,11 @@
 // ====================
 
 use axum::{
-    extract::{Json as AxumJson, Query, State},
-    http::StatusCode,
+    extract::{Json as AxumJson, Request, State},
+    http::{header, HeaderMap, StatusCode},
+    middleware::{self, Next},
     response::{IntoResponse, Json, Response},
-    routing::get,
+    routing::post,
     Router,
 };
 use reqwest::{
@@ -46,6 +47,53 @@ struct ApiResponse {
 
 struct AppState {
     client: Client,
+    port: u16,
+}
+
+// ====================
+// 本机来源校验（防浏览器端跨站 CSRF 与 DNS rebinding）
+// ====================
+
+fn is_local_hostname(host: &str) -> bool {
+    // 兼容 IPv6 字面量（如 [::1]:5000）
+    let hostname = if let Some(rest) = host.strip_prefix('[') {
+        rest.split(']').next().unwrap_or("")
+    } else {
+        host.split(':').next().unwrap_or("")
+    };
+    matches!(
+        hostname.to_ascii_lowercase().as_str(),
+        "127.0.0.1" | "localhost" | "::1"
+    )
+}
+
+async fn local_origin_guard(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    req: Request,
+    next: Next,
+) -> Response {
+    let host = headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if !is_local_hostname(host) {
+        return (StatusCode::FORBIDDEN, "Host 校验失败：仅允许本机访问").into_response();
+    }
+
+    // 浏览器跨站请求必然携带非本机 Origin；curl 等本机工具不携带 Origin，直接放行
+    if let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
+        let allowed = [
+            format!("http://127.0.0.1:{}", state.port),
+            format!("http://localhost:{}", state.port),
+            format!("http://[::1]:{}", state.port),
+        ];
+        if !allowed.iter().any(|a| a == origin) {
+            return (StatusCode::FORBIDDEN, "Origin 校验失败：已拦截跨站请求").into_response();
+        }
+    }
+
+    next.run(req).await
 }
 
 // ====================
@@ -159,24 +207,6 @@ async fn send_request_post(
 }
 
 // ====================
-// GET 请求处理
-// ====================
-
-async fn send_request_get(
-    Query(params): Query<HashMap<String, String>>,
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<ApiResponse>, ApiError> {
-    let req = ApiRequest {
-        method: params.get("method").cloned().unwrap_or_else(|| "GET".into()),
-        url: params.get("url").cloned().unwrap_or_default(),
-        headers: HashMap::new(),
-        body: None,
-    };
-
-    execute_request(&state.client, &req).await.map(Json)
-}
-
-// ====================
 // 启动入口
 // ====================
 
@@ -189,19 +219,23 @@ async fn main() {
         .build()
         .expect("构建 HTTP 客户端失败");
 
-    let state = Arc::new(AppState { client });
-
-    let static_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("static");
-
-    let app = Router::new()
-        .route("/api/send", get(send_request_get).post(send_request_post))
-        .fallback_service(ServeDir::new(static_dir))
-        .with_state(state);
-
     let port: u16 = std::env::var("PORT")
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(5000);
+    let state = Arc::new(AppState { client, port });
+
+    let static_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("static");
+
+    let app = Router::new()
+        .route("/api/send", post(send_request_post))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            local_origin_guard,
+        ))
+        .fallback_service(ServeDir::new(static_dir))
+        .with_state(state);
+
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     println!("[*] API 调试器已启动♿️: http://{}", addr);
 

@@ -262,10 +262,10 @@ function renderHistory(){
     $('historyList').innerHTML=history.length
         ?history.map((h,i)=>`
             <div class="history-item" onclick="loadHistory(${i})">
-                <span class="history-method">${h.method}</span>
+                <span class="history-method">${esc(h.method)}</span>
                 <span class="history-url">${esc(h.url)}</span>
-                <span class="history-status ${h.status<400?'status-ok':'status-err'}">${h.status}</span>
-                <span class="history-time">${h.time}</span>
+                <span class="history-status ${h.status<400?'status-ok':'status-err'}">${esc(h.status)}</span>
+                <span class="history-time">${esc(h.time)}</span>
             </div>`).join('')
         :'<div class="history-empty">暂无历史记录</div>';
 }

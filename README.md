@@ -32,6 +32,12 @@ cargo run --release
 ### 3.打开界面
 访问 http://127.0.0.1:5000
 
+端口默认 5000，可通过环境变量覆盖（macOS 上 5000 可能被 AirPlay 接收器占用）：
+
+```bash
+PORT=5050 cargo run --release
+```
+
 ### 4.技术栈
 
 Rust - 后端

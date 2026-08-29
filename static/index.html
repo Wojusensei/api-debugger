@@ -67,6 +67,8 @@ textarea{width:100%;flex:1;min-height:160px;resize:vertical}
             <option>POST</option>
             <option>PUT</option>
             <option>DELETE</option>
+            <option>PATCH</option>
+            <option>HEAD</option>
         </select>
         <input type="text" id="url" placeholder="输入 API 地址...">
         <button class="btn" onclick="send()">发送</button>
@@ -174,7 +176,11 @@ async function send(){
             headers:{'Content-Type':'application/json'},
             body:JSON.stringify({method,url,headers,body:body||null})
         });
-        if(!resp.ok)throw new Error('代理返回 '+resp.status);
+        if(!resp.ok){
+            let msg='代理返回 '+resp.status;
+            try{const err=await resp.json();if(err&&err.error)msg=err.error}catch(_){}
+            throw new Error(msg);
+        }
         let data=await resp.json();
         showResponse(data);
         addHistory(method,url,headers,body,data.status,data.elapsed_ms);
@@ -190,7 +196,7 @@ function showResponse(data){
     }catch(e){
         setResponse(data.body||'(空响应体)');
     }
-    let entries=Object.entries(data.headers||{});
+    let entries=Array.isArray(data.headers)?data.headers:Object.entries(data.headers||{});
     $('respHeaders').innerHTML=entries.length
         ?entries.map(([k,v])=>`<div class="hdr-line"><span class="json-key">${esc(k)}:</span><span class="hdr-val">${esc(v)}</span></div>`).join('')
         :'暂无响应头';

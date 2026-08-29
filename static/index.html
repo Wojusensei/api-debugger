@@ -126,7 +126,7 @@ function toggle(id,heading){
 
 function switchTab(group,name){
     ['headers','body'].forEach(t=>{
-        $(`tab-${group}-${t}`).classList.toggle('active',t===name);
+        $(`${group}-tab-${t}`).classList.toggle('active',t===name);
         $(`${group}-${t}-panel`).hidden=t!==name;
     });
 }
@@ -152,7 +152,7 @@ function collectHeaders(){
     document.querySelectorAll('.header-row').forEach(row=>{
         let name=row.querySelector('.header-name').value.trim();
         let value=row.querySelector('.header-value').value.trim();
-        if(name&&value)headers[name]=value;
+        if(name)headers[name]=value;
     });
     return headers;
 }
@@ -195,7 +195,7 @@ function showResponse(data){
         ?entries.map(([k,v])=>`<div class="hdr-line"><span class="json-key">${esc(k)}:</span><span class="hdr-val">${esc(v)}</span></div>`).join('')
         :'暂无响应头';
     let cls=data.status<400?'status-ok':'status-err';
-    $('statusBar').innerHTML=`状态: <span class="${cls}">${data.status}</span> | 耗时: ${data.elapsed_ms}ms | 大小: ${fmtSize(data.body.length)}`;
+    $('statusBar').innerHTML=`状态: <span class="${cls}">${data.status}</span> | 耗时: ${data.elapsed_ms}ms | 大小: ${fmtSize(byteLen(data.body))}`;
 }
 
 function setResponse(text){
@@ -210,6 +210,10 @@ function fmtSize(n){
     if(n<1024)return n+' 字节';
     if(n<1024*1024)return (n/1024).toFixed(1)+'KB';
     return (n/1024/1024).toFixed(2)+'MB';
+}
+
+function byteLen(s){
+    return new TextEncoder().encode(s).length;
 }
 
 function syntaxHighlight(json){
@@ -229,8 +233,14 @@ function escAttr(s){
     return esc(s).replace(/"/g,'&quot;');
 }
 
+const SENSITIVE_HEADERS=/^(authorization|proxy-authorization|cookie|x-api-key)$/i;
+
 function addHistory(method,url,headers,body,status,elapsed){
-    history.unshift({method,url,headers,body,status,elapsed,time:new Date().toLocaleTimeString()});
+    let safeHeaders={};
+    Object.entries(headers||{}).forEach(([k,v])=>{
+        if(!SENSITIVE_HEADERS.test(k))safeHeaders[k]=v;
+    });
+    history.unshift({method,url,headers:safeHeaders,body,status,elapsed,time:new Date().toLocaleTimeString()});
     if(history.length>20)history.pop();
     saveHistory();
     renderHistory();
@@ -262,10 +272,10 @@ function renderHistory(){
     $('historyList').innerHTML=history.length
         ?history.map((h,i)=>`
             <div class="history-item" onclick="loadHistory(${i})">
-                <span class="history-method">${h.method}</span>
+                <span class="history-method">${esc(h.method)}</span>
                 <span class="history-url">${esc(h.url)}</span>
-                <span class="history-status ${h.status<400?'status-ok':'status-err'}">${h.status}</span>
-                <span class="history-time">${h.time}</span>
+                <span class="history-status ${h.status<400?'status-ok':'status-err'}">${esc(h.status)}</span>
+                <span class="history-time">${esc(h.time)}</span>
             </div>`).join('')
         :'<div class="history-empty">暂无历史记录</div>';
 }

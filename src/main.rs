@@ -3,7 +3,7 @@
 // ====================
 
 use axum::{
-    extract::{Json as AxumJson, Request, State},
+    extract::{DefaultBodyLimit, Json as AxumJson, Request, State},
     http::{header, HeaderMap, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Json, Response},
@@ -178,7 +178,7 @@ async fn execute_request(
     }
 
     let start = Instant::now();
-    let resp = req_builder.send().await.map_err(|e| {
+    let mut resp = req_builder.send().await.map_err(|e| {
         if e.is_timeout() {
             ApiError::bad_gateway(format!(
                 "请求超时（{} 秒内目标未响应）",
@@ -196,10 +196,24 @@ async fn execute_request(
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
         .collect();
-    let body = resp
-        .text()
+
+    // 分块读取响应体并限制大小，text() 会无条件读完全部内容，大文件会把内存撑爆
+    let mut raw: Vec<u8> = Vec::new();
+    while let Some(chunk) = resp
+        .chunk()
         .await
-        .map_err(|e| ApiError::bad_gateway(format!("读取响应体失败: {e}")))?;
+        .map_err(|e| ApiError::bad_gateway(format!("读取响应体失败: {e}")))?
+    {
+        if raw.len() + chunk.len() > MAX_BODY_BYTES {
+            return Err(ApiError::bad_gateway(format!(
+                "响应体超过 {} MB 上限，已中断读取",
+                MAX_BODY_BYTES / 1024 / 1024
+            )));
+        }
+        raw.extend_from_slice(&chunk);
+    }
+    // 非 UTF-8 内容按有损方式转字符串（与原 text() 的默认行为一致）
+    let body = String::from_utf8_lossy(&raw).into_owned();
     // 计时覆盖到响应体读取完成，而不仅是收到响应头
     let elapsed_ms = start.elapsed().as_millis() as u64;
 
@@ -267,6 +281,8 @@ async fn main() {
             local_origin_guard,
         ))
         .fallback_service(ServeDir::new(static_dir))
+        // 请求体上限与响应体上限保持一致（axum 默认只有 2MB）
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
@@ -282,5 +298,13 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .unwrap();
+}
+
+async fn shutdown_signal() {
+    let _ = tokio::signal::ctrl_c().await;
+    println!("\n[*] 收到 Ctrl+C，等待进行中的请求处理完…");
 }

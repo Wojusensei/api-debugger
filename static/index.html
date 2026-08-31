@@ -71,7 +71,7 @@ textarea{width:100%;flex:1;min-height:160px;resize:vertical}
             <option>HEAD</option>
         </select>
         <input type="text" id="url" placeholder="输入 API 地址...">
-        <button class="btn" onclick="send()">发送</button>
+        <button class="btn" id="sendBtn" onclick="send()">发送</button>
     </div>
     <div class="workspace">
         <div class="col col-request">
@@ -159,7 +159,10 @@ function collectHeaders(){
     return headers;
 }
 
+let inFlight=null;
+
 async function send(){
+    if(inFlight){inFlight.abort();return}
     let method=$('method').value;
     let url=$('url').value.trim();
     if(!url){setResponse('♿️ 请输入 URL ♿️');return}
@@ -169,12 +172,16 @@ async function send(){
 
     setResponse('♿️发送中...♿️');
     $('statusBar').textContent='';
+    let btn=$('sendBtn');
+    btn.textContent='停止';
 
+    inFlight=new AbortController();
     try{
         let resp=await fetch('/api/send',{
             method:'POST',
             headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({method,url,headers,body:body||null})
+            body:JSON.stringify({method,url,headers,body:body||null}),
+            signal:inFlight.signal
         });
         if(!resp.ok){
             let msg='代理返回 '+resp.status;
@@ -185,14 +192,25 @@ async function send(){
         showResponse(data);
         addHistory(method,url,headers,body,data.status,data.elapsed_ms);
     }catch(e){
-        setResponse('♿️ 请求失败: '+e.message+' ♿️');
+        if(e.name==='AbortError'){
+            setResponse('♿️ 已取消 ♿️');
+            $('statusBar').innerHTML='<span class="status-err">已取消</span>';
+        }else{
+            setResponse('♿️ 请求失败: '+e.message+' ♿️');
+            $('statusBar').innerHTML='<span class="status-err">失败</span>';
+        }
+    }finally{
+        inFlight=null;
+        btn.textContent='发送';
     }
 }
 
 function showResponse(data){
     try{
         let json=JSON.stringify(JSON.parse(data.body),null,2);
-        setResponseHTML(syntaxHighlight(json));
+        // 大响应跳过高亮，纯文本展示，避免整页卡顿
+        if(byteLen(json)>1024*1024){setResponse(json)}
+        else{setResponseHTML(syntaxHighlight(json))}
     }catch(e){
         setResponse(data.body||'(空响应体)');
     }
@@ -262,6 +280,8 @@ function loadHistory(i){
     let entries=Object.entries(h.headers||{});
     if(entries.length){entries.forEach(([k,v])=>addHeader(k,v))}
     else{addHeader()}
+    $('url').focus();
+    $('url').select();
 }
 
 function clearHistory(){

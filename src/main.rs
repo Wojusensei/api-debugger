@@ -3,7 +3,7 @@
 // ====================
 
 use axum::{
-    extract::{Json as AxumJson, Request, State},
+    extract::{DefaultBodyLimit, Json as AxumJson, Request, State},
     http::{header, HeaderMap, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Json, Response},
@@ -20,6 +20,16 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tower_http::services::ServeDir;
+
+// ====================
+// 常量
+// ====================
+
+/// 转发请求的总超时秒数，与 Client 构建处保持一致
+const REQUEST_TIMEOUT_SECS: u64 = 30;
+
+/// 响应体读取上限，防止大响应把进程内存撑爆
+const MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
 
 // ====================
 // 数据结构定义
@@ -168,10 +178,16 @@ async fn execute_request(
     }
 
     let start = Instant::now();
-    let resp = req_builder
-        .send()
-        .await
-        .map_err(|e| ApiError::bad_gateway(format!("请求目标失败: {e}")))?;
+    let mut resp = req_builder.send().await.map_err(|e| {
+        if e.is_timeout() {
+            ApiError::bad_gateway(format!(
+                "请求超时（{} 秒内目标未响应）",
+                REQUEST_TIMEOUT_SECS
+            ))
+        } else {
+            ApiError::bad_gateway(format!("请求目标失败: {e}"))
+        }
+    })?;
 
     let status = resp.status().as_u16();
     // Vec 保留同名头的多次出现（如多个 Set-Cookie），HashMap 会互相覆盖
@@ -180,10 +196,24 @@ async fn execute_request(
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
         .collect();
-    let body = resp
-        .text()
+
+    // 分块读取响应体并限制大小，text() 会无条件读完全部内容，大文件会把内存撑爆
+    let mut raw: Vec<u8> = Vec::new();
+    while let Some(chunk) = resp
+        .chunk()
         .await
-        .map_err(|e| ApiError::bad_gateway(format!("读取响应体失败: {e}")))?;
+        .map_err(|e| ApiError::bad_gateway(format!("读取响应体失败: {e}")))?
+    {
+        if raw.len() + chunk.len() > MAX_BODY_BYTES {
+            return Err(ApiError::bad_gateway(format!(
+                "响应体超过 {} MB 上限，已中断读取",
+                MAX_BODY_BYTES / 1024 / 1024
+            )));
+        }
+        raw.extend_from_slice(&chunk);
+    }
+    // 非 UTF-8 内容按有损方式转字符串（与原 text() 的默认行为一致）
+    let body = String::from_utf8_lossy(&raw).into_owned();
     // 计时覆盖到响应体读取完成，而不仅是收到响应头
     let elapsed_ms = start.elapsed().as_millis() as u64;
 
@@ -203,7 +233,24 @@ async fn send_request_post(
     State(state): State<Arc<AppState>>,
     AxumJson(req): AxumJson<ApiRequest>,
 ) -> Result<Json<ApiResponse>, ApiError> {
-    execute_request(&state.client, &req).await.map(Json)
+    let result = execute_request(&state.client, &req).await;
+    match &result {
+        Ok(resp) => println!(
+            "[✓] {} {} · {} · {}ms",
+            req.method.to_uppercase(),
+            req.url,
+            resp.status,
+            resp.elapsed_ms
+        ),
+        Err(e) => println!(
+            "[✗] {} {} · {} {}",
+            req.method.to_uppercase(),
+            req.url,
+            e.status,
+            e.message
+        ),
+    }
+    result.map(Json)
 }
 
 // ====================
@@ -213,7 +260,7 @@ async fn send_request_post(
 #[tokio::main]
 async fn main() {
     let client = Client::builder()
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
         .connect_timeout(Duration::from_secs(10))
         .user_agent("api-debugger/0.1")
         .build()
@@ -234,6 +281,8 @@ async fn main() {
             local_origin_guard,
         ))
         .fallback_service(ServeDir::new(static_dir))
+        // 请求体上限与响应体上限保持一致（axum 默认只有 2MB）
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
@@ -249,5 +298,13 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .unwrap();
+}
+
+async fn shutdown_signal() {
+    let _ = tokio::signal::ctrl_c().await;
+    println!("\n[*] 收到 Ctrl+C，等待进行中的请求处理完…");
 }

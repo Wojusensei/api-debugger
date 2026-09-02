@@ -6,9 +6,11 @@
 <title>API 调试器</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'SF Mono','Menlo','Monaco',monospace;background:#1e1e1e;color:#d4d4d4;min-height:100vh;display:flex;flex-direction:column;gap:16px;padding:20px}
-h1{font-size:20px;color:#569cd6}
-.panel{background:#252526;border:1px solid #3e3e42;border-radius:6px;padding:16px}
+body{font-family:'SF Mono','Menlo','Monaco',monospace;background:#1e1e1e;color:#d4d4d4;min-height:100vh;display:flex;flex-direction:column;gap:14px;padding:18px 20px}
+h1{font-size:17px;color:#d4d4d4;font-weight:600;letter-spacing:.5px}
+.app-head{display:flex;align-items:baseline;gap:10px;padding:2px 2px 0}
+.app-sub{font-size:11px;color:#6a6a6a;user-select:none}
+.panel{background:#252526;border:1px solid #3e3e42;border-radius:6px;padding:14px 16px}
 .panel-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 .panel-head h2{font-size:14px;color:#888;cursor:pointer;user-select:none}
 .panel-head h2:hover{color:#ccc}
@@ -22,11 +24,11 @@ textarea{width:100%;flex:1;min-height:160px;resize:vertical}
 .btn:hover{background:#1177bb}
 .btn-sm{background:#3c3c3c;padding:4px 10px;font-size:12px;font-weight:400}
 .btn-sm:hover{background:#4a4a4a}
-.workspace{display:flex;gap:16px;margin-top:14px;align-items:stretch}
+.workspace{display:flex;gap:14px;margin-top:12px;align-items:stretch}
 .col{display:flex;flex-direction:column;min-width:0}
 .col-request{flex:2}
 .col-response{flex:3}
-.tabs{display:flex;gap:4px;border-bottom:1px solid #3e3e42;margin-bottom:12px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid #3e3e42;margin-bottom:10px}
 .tab{padding:6px 12px;font-size:12px;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;user-select:none}
 .tab:hover{color:#ccc}
 .tab.active{color:#d4d4d4;border-bottom-color:#569cd6}
@@ -73,7 +75,10 @@ textarea{width:100%;flex:1;min-height:160px;resize:vertical}
 </style>
 </head>
 <body>
-<h1>API 调试器</h1>
+<header class="app-head">
+    <h1>API 调试器</h1>
+    <span class="app-sub">本地运行 · 请求由本机转发</span>
+</header>
 
 <div class="panel">
     <div class="row">

@@ -260,13 +260,16 @@ function escAttr(s){
 }
 
 const SENSITIVE_HEADERS=/^(authorization|proxy-authorization|cookie|x-api-key)$/i;
+// 历史里的请求体只留这么长，防止把 localStorage 写满后整个历史静默失效
+const MAX_STORED_BODY=64*1024;
 
 function addHistory(method,url,headers,body,status,elapsed){
     let safeHeaders={};
     Object.entries(headers||{}).forEach(([k,v])=>{
         if(!SENSITIVE_HEADERS.test(k))safeHeaders[k]=v;
     });
-    history.unshift({method,url,headers:safeHeaders,body,status,elapsed,time:new Date().toLocaleTimeString()});
+    let omitted=!!body&&body.length>MAX_STORED_BODY;
+    history.unshift({method,url,headers:safeHeaders,body:omitted?null:body,bodyOmitted:omitted,status,elapsed,time:new Date().toLocaleTimeString()});
     if(history.length>20)history.pop();
     saveHistory();
     renderHistory();
@@ -278,6 +281,8 @@ function loadHistory(i){
     $('method').value=h.method;
     $('url').value=h.url;
     $('body').value=h.body||'';
+    // 当初因为太大没入库的请求体，别让占位文案被当成内容发出去
+    $('body').placeholder=h.bodyOmitted?'请求体过大，未保存到历史':'请求体 (JSON/XML/Text)';
     $('headersContainer').innerHTML='';
     let entries=Object.entries(h.headers||{});
     if(entries.length){entries.forEach(([k,v])=>addHeader(k,v))}

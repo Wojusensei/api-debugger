@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>API调试器♿️</title>
+<title>API 调试器</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'SF Mono','Menlo','Monaco',monospace;background:#1e1e1e;color:#d4d4d4;min-height:100vh;display:flex;flex-direction:column;gap:16px;padding:20px}
@@ -59,7 +59,7 @@ textarea{width:100%;flex:1;min-height:160px;resize:vertical}
 </style>
 </head>
 <body>
-<h1>API调试器♿️</h1>
+<h1>API 调试器</h1>
 
 <div class="panel">
     <div class="row">
@@ -167,12 +167,12 @@ async function send(){
     if(inFlight){inFlight.abort();return}
     let method=$('method').value;
     let url=$('url').value.trim();
-    if(!url){setResponse('♿️ 请输入 URL ♿️');return}
+    if(!url){setResponse('请输入 URL');return}
 
     let headers=collectHeaders();
     let body=$('body').value;
 
-    setResponse('♿️发送中...♿️');
+    setResponse('发送中…');
     $('statusBar').textContent='';
     $('respHeaders').textContent='';
     let btn=$('sendBtn');
@@ -196,10 +196,10 @@ async function send(){
         addHistory(method,url,headers,body,data.status,data.elapsed_ms);
     }catch(e){
         if(e.name==='AbortError'){
-            setResponse('♿️ 已取消 ♿️');
+            setResponse('已取消');
             $('statusBar').innerHTML='<span class="status-err">已取消</span>';
         }else{
-            setResponse('♿️ 请求失败: '+e.message+' ♿️');
+            setResponse('请求失败: '+e.message);
             $('statusBar').innerHTML='<span class="status-err">失败</span>';
         }
     }finally{

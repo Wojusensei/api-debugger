@@ -298,7 +298,7 @@ async fn main() {
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    println!("[*] API 调试器已启动♿️: http://{}", addr);
+    println!("[*] API 调试器已启动: http://{}", addr);
 
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(l) => l,

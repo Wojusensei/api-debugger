@@ -227,6 +227,20 @@ async fn execute_request(
 // POST 请求处理
 // ====================
 
+/// 打日志用的 URL：抹掉用户名密码，凭据不该出现在终端记录里
+fn redact_url(url: &str) -> String {
+    match Url::parse(url) {
+        Ok(mut u) => {
+            if !u.username().is_empty() || u.password().is_some() {
+                let _ = u.set_username("");
+                let _ = u.set_password(None);
+            }
+            u.to_string()
+        }
+        Err(_) => url.to_string(),
+    }
+}
+
 async fn send_request_post(
     State(state): State<Arc<AppState>>,
     AxumJson(req): AxumJson<ApiRequest>,
@@ -236,14 +250,14 @@ async fn send_request_post(
         Ok(resp) => println!(
             "[✓] {} {} · {} · {}ms",
             req.method.to_uppercase(),
-            req.url,
+            redact_url(&req.url),
             resp.status,
             resp.elapsed_ms
         ),
         Err(e) => println!(
             "[✗] {} {} · {} {}",
             req.method.to_uppercase(),
-            req.url,
+            redact_url(&req.url),
             e.status,
             e.message
         ),

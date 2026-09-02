@@ -30,7 +30,8 @@ textarea{width:100%;flex:1;min-height:160px;resize:vertical}
 .tab{padding:6px 12px;font-size:12px;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;user-select:none}
 .tab:hover{color:#ccc}
 .tab.active{color:#d4d4d4;border-bottom-color:#569cd6}
-.tab-body{flex:1;display:flex;flex-direction:column;min-height:220px}
+.tab-body{flex:1;display:none;flex-direction:column;min-height:220px}
+.tab-body.active{display:flex}
 #headersContainer{flex:1;overflow:auto}
 #req-body-panel textarea{min-height:220px}
 .header-row{display:flex;gap:6px;margin-bottom:6px}
@@ -79,11 +80,11 @@ textarea{width:100%;flex:1;min-height:160px;resize:vertical}
                 <div class="tab active" id="req-tab-headers" onclick="switchTab('req','headers')">Headers</div>
                 <div class="tab" id="req-tab-body" onclick="switchTab('req','body')">Body</div>
             </div>
-            <div class="tab-body" id="req-headers-panel">
+            <div class="tab-body active" id="req-headers-panel">
                 <div id="headersContainer"></div>
                 <button class="btn btn-sm" style="margin-top:8px;align-self:flex-start" onclick="addHeader()">+ 添加</button>
             </div>
-            <div class="tab-body" id="req-body-panel" hidden>
+            <div class="tab-body" id="req-body-panel">
                 <textarea id="body" placeholder="请求体 (JSON/XML/Text)"></textarea>
             </div>
         </div>
@@ -92,10 +93,10 @@ textarea{width:100%;flex:1;min-height:160px;resize:vertical}
                 <div class="tab active" id="resp-tab-body" onclick="switchTab('resp','body')">响应体</div>
                 <div class="tab" id="resp-tab-headers" onclick="switchTab('resp','headers')">响应头</div>
             </div>
-            <div class="tab-body" id="resp-body-panel">
+            <div class="tab-body active" id="resp-body-panel">
                 <div class="response-box" id="response">等待请求...</div>
             </div>
-            <div class="tab-body" id="resp-headers-panel" hidden>
+            <div class="tab-body" id="resp-headers-panel">
                 <div class="response-box" id="respHeaders">暂无响应头</div>
             </div>
             <div class="status-bar" id="statusBar"></div>
@@ -129,7 +130,7 @@ function toggle(id,heading){
 function switchTab(group,name){
     ['headers','body'].forEach(t=>{
         $(`${group}-tab-${t}`).classList.toggle('active',t===name);
-        $(`${group}-${t}-panel`).hidden=t!==name;
+        $(`${group}-${t}-panel`).classList.toggle('active',t===name);
     });
 }
 

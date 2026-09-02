@@ -15,7 +15,6 @@ use reqwest::{
     Client, Method, Url,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -39,7 +38,8 @@ const MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
 struct ApiRequest {
     method: String,
     url: String,
-    headers: HashMap<String, String>,
+    // 用 Vec 保留同名头的多次出现（如两个 Cookie），HashMap 会互相覆盖
+    headers: Vec<(String, String)>,
     body: Option<String>,
 }
 

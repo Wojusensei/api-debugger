@@ -151,11 +151,12 @@ function removeHeader(btn){
 }
 
 function collectHeaders(){
-    let headers={};
+    // 数组保序且允许重名，与后端 Vec<(String,String)> 对应
+    let headers=[];
     document.querySelectorAll('.header-row').forEach(row=>{
         let name=row.querySelector('.header-name').value.trim();
         let value=row.querySelector('.header-value').value.trim();
-        if(name)headers[name]=value;
+        if(name)headers.push([name,value]);
     });
     return headers;
 }
@@ -264,10 +265,8 @@ const SENSITIVE_HEADERS=/^(authorization|proxy-authorization|cookie|x-api-key)$/
 const MAX_STORED_BODY=64*1024;
 
 function addHistory(method,url,headers,body,status,elapsed){
-    let safeHeaders={};
-    Object.entries(headers||{}).forEach(([k,v])=>{
-        if(!SENSITIVE_HEADERS.test(k))safeHeaders[k]=v;
-    });
+    // headers 现在是 [name,value] 数组，只过滤敏感头，重名保留
+    let safeHeaders=(headers||[]).filter(([k])=>!SENSITIVE_HEADERS.test(k));
     let omitted=!!body&&body.length>MAX_STORED_BODY;
     history.unshift({method,url,headers:safeHeaders,body:omitted?null:body,bodyOmitted:omitted,status,elapsed,time:new Date().toLocaleTimeString()});
     if(history.length>20)history.pop();
@@ -284,7 +283,8 @@ function loadHistory(i){
     // 当初因为太大没入库的请求体，别让占位文案被当成内容发出去
     $('body').placeholder=h.bodyOmitted?'请求体过大，未保存到历史':'请求体 (JSON/XML/Text)';
     $('headersContainer').innerHTML='';
-    let entries=Object.entries(h.headers||{});
+    // 兼容旧版 localStorage 里对象形式的历史头
+    let entries=Array.isArray(h.headers)?h.headers:Object.entries(h.headers||{});
     if(entries.length){entries.forEach(([k,v])=>addHeader(k,v))}
     else{addHeader()}
     $('url').focus();

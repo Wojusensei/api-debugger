@@ -16,7 +16,15 @@ h1{font-size:17px;color:#d4d4d4;font-weight:600;letter-spacing:.5px}
 .panel-head h2:hover{color:#ccc}
 .row{display:flex;gap:8px}
 textarea,input,select{background:#3c3c3c;color:#d4d4d4;border:1px solid #555;padding:8px 10px;border-radius:4px;font-size:13px;font-family:inherit;outline:none}
+textarea:hover,input:hover,select:hover{border-color:#5f5f64}
 textarea:focus,input:focus,select:focus{border-color:#569cd6}
+textarea,input,select,.btn,.del-btn,.tab,.history-item{transition:background-color .12s ease,border-color .12s ease,color .12s ease}
+::placeholder{color:#6b6b6b}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:#3c3c3c;border-radius:5px;border:2px solid #1e1e1e}
+::-webkit-scrollbar-thumb:hover{background:#4f4f4f}
+::-webkit-scrollbar-track{background:transparent}
+.btn:focus-visible,.del-btn:focus-visible,.tab:focus-visible{outline:1px solid #569cd6;outline-offset:2px}
 input[type="text"]{flex:1;min-width:0}
 select{width:100px;flex:none}
 textarea{width:100%;flex:1;min-height:160px;resize:vertical}

@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2325292e'/%3E%3Cpath d='M9 11l6 5-6 5' stroke='%23569cd6' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M17 21h7' stroke='%237a7a7a' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E">
 <title>API 调试器</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -70,6 +71,13 @@ textarea{width:100%;flex:1;min-height:160px;resize:vertical}
 .s5{color:#f48771;background:rgba(244,135,113,.12)}
 .s0{color:#888;background:rgba(128,128,128,.15)}
 .dim{color:#5a5a5a}
+.empty-hint{color:#5a5a5a;text-align:center;margin-top:80px;font-size:12px;line-height:2.2;user-select:none}
+.empty-sub{font-size:11px;color:#4a4a4a}
+.loading{color:#888;display:flex;align-items:center;gap:5px;user-select:none}
+.dot{width:5px;height:5px;border-radius:50%;background:#569cd6;animation:blink 1.2s infinite}
+.dot:nth-child(2){animation-delay:.2s}
+.dot:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,80%,100%{opacity:.15}40%{opacity:1}}
 .hdr-line{display:flex;gap:8px;margin-bottom:4px}
 .hdr-line .hdr-val{color:#d4d4d4;word-break:break-all}
 .history-item{display:flex;gap:8px;align-items:baseline;padding:6px 4px;border-bottom:1px solid #333;font-size:12px;cursor:pointer}
@@ -121,7 +129,7 @@ textarea{width:100%;flex:1;min-height:160px;resize:vertical}
                 <div class="tab" id="resp-tab-headers" onclick="switchTab('resp','headers')">响应头</div>
             </div>
             <div class="tab-body active" id="resp-body-panel">
-                <div class="response-box" id="response">等待请求...</div>
+                <div class="response-box" id="response"><div class="empty-hint">等待请求…<br><span class="empty-sub">输入地址后点发送，或按 ⌘/Ctrl + Enter</span></div></div>
             </div>
             <div class="tab-body" id="resp-headers-panel">
                 <div class="response-box" id="respHeaders">暂无响应头</div>
@@ -209,7 +217,7 @@ async function send(){
     let headers=collectHeaders();
     let body=$('body').value;
 
-    setResponse('发送中…');
+    setLoading();
     $('statusBar').textContent='';
     $('respHeaders').textContent='';
     let btn=$('sendBtn');
@@ -263,6 +271,10 @@ function showResponse(data){
 
 function setResponse(text){
     $('response').textContent=text;
+}
+
+function setLoading(){
+    $('response').innerHTML='<div class="loading">请求中<span class="dot"></span><span class="dot"></span><span class="dot"></span></div>';
 }
 
 function setResponseHTML(html){

@@ -24,7 +24,7 @@ use tower_http::services::ServeDir;
 // 常量
 // ====================
 
-/// 转发请求的总超时秒数，与 Client 构建处保持一致
+/// 转发请求的总超时秒数
 const REQUEST_TIMEOUT_SECS: u64 = 30;
 
 /// 响应体读取上限，防止大响应把进程内存撑爆
@@ -180,10 +180,8 @@ async fn execute_request(
     let start = Instant::now();
     let mut resp = req_builder.send().await.map_err(|e| {
         if e.is_timeout() {
-            ApiError::bad_gateway(format!(
-                "请求超时（{} 秒内目标未响应）",
-                REQUEST_TIMEOUT_SECS
-            ))
+            // 连接超时和总超时都会走到这里，具体秒数各不相同，提示里就不写死了
+            ApiError::bad_gateway("请求超时：目标长时间无响应".to_string())
         } else {
             ApiError::bad_gateway(format!("请求目标失败: {e}"))
         }

@@ -30,7 +30,8 @@ textarea{width:100%;flex:1;min-height:160px;resize:vertical}
 .tab{padding:6px 12px;font-size:12px;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;user-select:none}
 .tab:hover{color:#ccc}
 .tab.active{color:#d4d4d4;border-bottom-color:#569cd6}
-.tab-body{flex:1;display:flex;flex-direction:column;min-height:220px}
+.tab-body{flex:1;display:none;flex-direction:column;min-height:220px}
+.tab-body.active{display:flex}
 #headersContainer{flex:1;overflow:auto}
 #req-body-panel textarea{min-height:220px}
 .header-row{display:flex;gap:6px;margin-bottom:6px}
@@ -79,11 +80,11 @@ textarea{width:100%;flex:1;min-height:160px;resize:vertical}
                 <div class="tab active" id="req-tab-headers" onclick="switchTab('req','headers')">Headers</div>
                 <div class="tab" id="req-tab-body" onclick="switchTab('req','body')">Body</div>
             </div>
-            <div class="tab-body" id="req-headers-panel">
+            <div class="tab-body active" id="req-headers-panel">
                 <div id="headersContainer"></div>
                 <button class="btn btn-sm" style="margin-top:8px;align-self:flex-start" onclick="addHeader()">+ 添加</button>
             </div>
-            <div class="tab-body" id="req-body-panel" hidden>
+            <div class="tab-body" id="req-body-panel">
                 <textarea id="body" placeholder="请求体 (JSON/XML/Text)"></textarea>
             </div>
         </div>
@@ -92,10 +93,10 @@ textarea{width:100%;flex:1;min-height:160px;resize:vertical}
                 <div class="tab active" id="resp-tab-body" onclick="switchTab('resp','body')">响应体</div>
                 <div class="tab" id="resp-tab-headers" onclick="switchTab('resp','headers')">响应头</div>
             </div>
-            <div class="tab-body" id="resp-body-panel">
+            <div class="tab-body active" id="resp-body-panel">
                 <div class="response-box" id="response">等待请求...</div>
             </div>
-            <div class="tab-body" id="resp-headers-panel" hidden>
+            <div class="tab-body" id="resp-headers-panel">
                 <div class="response-box" id="respHeaders">暂无响应头</div>
             </div>
             <div class="status-bar" id="statusBar"></div>
@@ -129,7 +130,7 @@ function toggle(id,heading){
 function switchTab(group,name){
     ['headers','body'].forEach(t=>{
         $(`${group}-tab-${t}`).classList.toggle('active',t===name);
-        $(`${group}-${t}-panel`).hidden=t!==name;
+        $(`${group}-${t}-panel`).classList.toggle('active',t===name);
     });
 }
 
@@ -150,11 +151,12 @@ function removeHeader(btn){
 }
 
 function collectHeaders(){
-    let headers={};
+    // 数组保序且允许重名，与后端 Vec<(String,String)> 对应
+    let headers=[];
     document.querySelectorAll('.header-row').forEach(row=>{
         let name=row.querySelector('.header-name').value.trim();
         let value=row.querySelector('.header-value').value.trim();
-        if(name)headers[name]=value;
+        if(name)headers.push([name,value]);
     });
     return headers;
 }
@@ -172,6 +174,7 @@ async function send(){
 
     setResponse('♿️发送中...♿️');
     $('statusBar').textContent='';
+    $('respHeaders').textContent='';
     let btn=$('sendBtn');
     btn.textContent='停止';
 
@@ -258,13 +261,14 @@ function escAttr(s){
 }
 
 const SENSITIVE_HEADERS=/^(authorization|proxy-authorization|cookie|x-api-key)$/i;
+// 历史里的请求体只留这么长，防止把 localStorage 写满后整个历史静默失效
+const MAX_STORED_BODY=64*1024;
 
 function addHistory(method,url,headers,body,status,elapsed){
-    let safeHeaders={};
-    Object.entries(headers||{}).forEach(([k,v])=>{
-        if(!SENSITIVE_HEADERS.test(k))safeHeaders[k]=v;
-    });
-    history.unshift({method,url,headers:safeHeaders,body,status,elapsed,time:new Date().toLocaleTimeString()});
+    // headers 现在是 [name,value] 数组，只过滤敏感头，重名保留
+    let safeHeaders=(headers||[]).filter(([k])=>!SENSITIVE_HEADERS.test(k));
+    let omitted=!!body&&body.length>MAX_STORED_BODY;
+    history.unshift({method,url,headers:safeHeaders,body:omitted?null:body,bodyOmitted:omitted,status,elapsed,time:new Date().toLocaleTimeString()});
     if(history.length>20)history.pop();
     saveHistory();
     renderHistory();
@@ -276,8 +280,11 @@ function loadHistory(i){
     $('method').value=h.method;
     $('url').value=h.url;
     $('body').value=h.body||'';
+    // 当初因为太大没入库的请求体，别让占位文案被当成内容发出去
+    $('body').placeholder=h.bodyOmitted?'请求体过大，未保存到历史':'请求体 (JSON/XML/Text)';
     $('headersContainer').innerHTML='';
-    let entries=Object.entries(h.headers||{});
+    // 兼容旧版 localStorage 里对象形式的历史头
+    let entries=Array.isArray(h.headers)?h.headers:Object.entries(h.headers||{});
     if(entries.length){entries.forEach(([k,v])=>addHeader(k,v))}
     else{addHeader()}
     $('url').focus();

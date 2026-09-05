@@ -15,7 +15,6 @@ use reqwest::{
     Client, Method, Url,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -25,7 +24,7 @@ use tower_http::services::ServeDir;
 // 常量
 // ====================
 
-/// 转发请求的总超时秒数，与 Client 构建处保持一致
+/// 转发请求的总超时秒数
 const REQUEST_TIMEOUT_SECS: u64 = 30;
 
 /// 响应体读取上限，防止大响应把进程内存撑爆
@@ -39,7 +38,8 @@ const MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
 struct ApiRequest {
     method: String,
     url: String,
-    headers: HashMap<String, String>,
+    // 用 Vec 保留同名头的多次出现（如两个 Cookie），HashMap 会互相覆盖
+    headers: Vec<(String, String)>,
     body: Option<String>,
 }
 
@@ -180,10 +180,8 @@ async fn execute_request(
     let start = Instant::now();
     let mut resp = req_builder.send().await.map_err(|e| {
         if e.is_timeout() {
-            ApiError::bad_gateway(format!(
-                "请求超时（{} 秒内目标未响应）",
-                REQUEST_TIMEOUT_SECS
-            ))
+            // 连接超时和总超时都会走到这里，具体秒数各不相同，提示里就不写死了
+            ApiError::bad_gateway("请求超时：目标长时间无响应".to_string())
         } else {
             ApiError::bad_gateway(format!("请求目标失败: {e}"))
         }
@@ -229,6 +227,20 @@ async fn execute_request(
 // POST 请求处理
 // ====================
 
+/// 打日志用的 URL：抹掉用户名密码，凭据不该出现在终端记录里
+fn redact_url(url: &str) -> String {
+    match Url::parse(url) {
+        Ok(mut u) => {
+            if !u.username().is_empty() || u.password().is_some() {
+                let _ = u.set_username("");
+                let _ = u.set_password(None);
+            }
+            u.to_string()
+        }
+        Err(_) => url.to_string(),
+    }
+}
+
 async fn send_request_post(
     State(state): State<Arc<AppState>>,
     AxumJson(req): AxumJson<ApiRequest>,
@@ -238,14 +250,14 @@ async fn send_request_post(
         Ok(resp) => println!(
             "[✓] {} {} · {} · {}ms",
             req.method.to_uppercase(),
-            req.url,
+            redact_url(&req.url),
             resp.status,
             resp.elapsed_ms
         ),
         Err(e) => println!(
             "[✗] {} {} · {} {}",
             req.method.to_uppercase(),
-            req.url,
+            redact_url(&req.url),
             e.status,
             e.message
         ),

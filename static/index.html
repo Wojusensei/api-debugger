@@ -3,18 +3,29 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>API调试器♿️</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2325292e'/%3E%3Cpath d='M9 11l6 5-6 5' stroke='%23569cd6' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M17 21h7' stroke='%237a7a7a' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E">
+<title>API 调试器</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'SF Mono','Menlo','Monaco',monospace;background:#1e1e1e;color:#d4d4d4;min-height:100vh;display:flex;flex-direction:column;gap:16px;padding:20px}
-h1{font-size:20px;color:#569cd6}
-.panel{background:#252526;border:1px solid #3e3e42;border-radius:6px;padding:16px}
+body{font-family:'SF Mono','Menlo','Monaco',monospace;background:#1e1e1e;color:#d4d4d4;min-height:100vh;display:flex;flex-direction:column;gap:14px;padding:18px 20px}
+h1{font-size:17px;color:#d4d4d4;font-weight:600;letter-spacing:.5px}
+.app-head{display:flex;align-items:baseline;gap:10px;padding:2px 2px 0}
+.app-sub{font-size:11px;color:#6a6a6a;user-select:none}
+.panel{background:#252526;border:1px solid #3e3e42;border-radius:6px;padding:14px 16px}
 .panel-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 .panel-head h2{font-size:14px;color:#888;cursor:pointer;user-select:none}
 .panel-head h2:hover{color:#ccc}
 .row{display:flex;gap:8px}
 textarea,input,select{background:#3c3c3c;color:#d4d4d4;border:1px solid #555;padding:8px 10px;border-radius:4px;font-size:13px;font-family:inherit;outline:none}
+textarea:hover,input:hover,select:hover{border-color:#5f5f64}
 textarea:focus,input:focus,select:focus{border-color:#569cd6}
+textarea,input,select,.btn,.del-btn,.tab,.history-item{transition:background-color .12s ease,border-color .12s ease,color .12s ease}
+::placeholder{color:#6b6b6b}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:#3c3c3c;border-radius:5px;border:2px solid #1e1e1e}
+::-webkit-scrollbar-thumb:hover{background:#4f4f4f}
+::-webkit-scrollbar-track{background:transparent}
+.btn:focus-visible,.del-btn:focus-visible,.tab:focus-visible{outline:1px solid #569cd6;outline-offset:2px}
 input[type="text"]{flex:1;min-width:0}
 select{width:100px;flex:none}
 textarea{width:100%;flex:1;min-height:160px;resize:vertical}
@@ -22,11 +33,11 @@ textarea{width:100%;flex:1;min-height:160px;resize:vertical}
 .btn:hover{background:#1177bb}
 .btn-sm{background:#3c3c3c;padding:4px 10px;font-size:12px;font-weight:400}
 .btn-sm:hover{background:#4a4a4a}
-.workspace{display:flex;gap:16px;margin-top:14px;align-items:stretch}
+.workspace{display:flex;gap:14px;margin-top:12px;align-items:stretch}
 .col{display:flex;flex-direction:column;min-width:0}
 .col-request{flex:2}
 .col-response{flex:3}
-.tabs{display:flex;gap:4px;border-bottom:1px solid #3e3e42;margin-bottom:12px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid #3e3e42;margin-bottom:10px}
 .tab{padding:6px 12px;font-size:12px;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;user-select:none}
 .tab:hover{color:#ccc}
 .tab.active{color:#d4d4d4;border-bottom-color:#569cd6}
@@ -46,24 +57,48 @@ textarea{width:100%;flex:1;min-height:160px;resize:vertical}
 .json-string{color:#ce9178}
 .json-number{color:#b5cea8}
 .json-boolean{color:#569cd6}
+.m-get{color:#b5cea8}
+.m-post{color:#569cd6}
+.m-put{color:#dcdcaa}
+.m-delete{color:#f48771}
+.m-patch{color:#c586c0}
+.m-head{color:#9cdcfe}
+.m-other{color:#808080}
+.chip{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;line-height:1.5}
+.s2{color:#b5cea8;background:rgba(181,206,168,.12)}
+.s3{color:#9cdcfe;background:rgba(156,220,254,.12)}
+.s4{color:#e5c07b;background:rgba(229,192,123,.12)}
+.s5{color:#f48771;background:rgba(244,135,113,.12)}
+.s0{color:#888;background:rgba(128,128,128,.15)}
+.dim{color:#5a5a5a}
+.empty-hint{color:#5a5a5a;text-align:center;margin-top:80px;font-size:12px;line-height:2.2;user-select:none}
+.empty-sub{font-size:11px;color:#4a4a4a}
+.loading{color:#888;display:flex;align-items:center;gap:5px;user-select:none}
+.dot{width:5px;height:5px;border-radius:50%;background:#569cd6;animation:blink 1.2s infinite}
+.dot:nth-child(2){animation-delay:.2s}
+.dot:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,80%,100%{opacity:.15}40%{opacity:1}}
 .hdr-line{display:flex;gap:8px;margin-bottom:4px}
 .hdr-line .hdr-val{color:#d4d4d4;word-break:break-all}
-.history-item{display:flex;gap:8px;align-items:baseline;padding:6px 4px;border-bottom:1px solid #333;font-size:12px;cursor:pointer}
+.history-item{display:flex;gap:10px;align-items:baseline;padding:7px 6px;border-bottom:1px solid #333;font-size:12px;cursor:pointer;border-radius:3px}
 .history-item:hover{background:#2a2d2e}
-.history-method{color:#569cd6;font-weight:600;flex:none}
+.history-method{font-weight:600;flex:none;min-width:46px}
 .history-url{color:#d4d4d4;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .history-status{flex:none}
-.history-time{color:#888;flex:none}
+.history-time{color:#666;flex:none;font-size:11px}
 .history-empty{color:#888;font-size:12px;padding:4px 0}
 @media (max-width:800px){.workspace{flex-direction:column}}
 </style>
 </head>
 <body>
-<h1>API调试器♿️</h1>
+<header class="app-head">
+    <h1>API 调试器</h1>
+    <span class="app-sub">本地运行 · 请求由本机转发</span>
+</header>
 
 <div class="panel">
     <div class="row">
-        <select id="method">
+        <select id="method" onchange="syncMethodColor()">
             <option>GET</option>
             <option>POST</option>
             <option>PUT</option>
@@ -94,7 +129,7 @@ textarea{width:100%;flex:1;min-height:160px;resize:vertical}
                 <div class="tab" id="resp-tab-headers" onclick="switchTab('resp','headers')">响应头</div>
             </div>
             <div class="tab-body active" id="resp-body-panel">
-                <div class="response-box" id="response">等待请求...</div>
+                <div class="response-box" id="response"><div class="empty-hint">等待请求…<br><span class="empty-sub">输入地址后点发送，或按 ⌘/Ctrl + Enter</span></div></div>
             </div>
             <div class="tab-body" id="resp-headers-panel">
                 <div class="response-box" id="respHeaders">暂无响应头</div>
@@ -119,6 +154,16 @@ const $=id=>document.getElementById(id);
 const HISTORY_KEY='apiDebuggerHistory';
 let history=[];
 try{history=JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]')}catch(e){history=[]}
+
+const METHOD_CLASS={GET:'m-get',POST:'m-post',PUT:'m-put',DELETE:'m-delete',PATCH:'m-patch',HEAD:'m-head'};
+const mClass=m=>METHOD_CLASS[(m||'').toUpperCase()]||'m-other';
+const sClass=s=>s>=200&&s<300?'s2':s>=300&&s<400?'s3':s>=400&&s<500?'s4':s>=500?'s5':'s0';
+
+function syncMethodColor(){
+    const sel=$('method');
+    sel.classList.remove(...Object.values(METHOD_CLASS),'m-other');
+    sel.classList.add(mClass(sel.value));
+}
 
 function toggle(id,heading){
     let el=$(id);
@@ -167,12 +212,12 @@ async function send(){
     if(inFlight){inFlight.abort();return}
     let method=$('method').value;
     let url=$('url').value.trim();
-    if(!url){setResponse('♿️ 请输入 URL ♿️');return}
+    if(!url){setResponse('请输入 URL');return}
 
     let headers=collectHeaders();
     let body=$('body').value;
 
-    setResponse('♿️发送中...♿️');
+    setLoading();
     $('statusBar').textContent='';
     $('respHeaders').textContent='';
     let btn=$('sendBtn');
@@ -196,10 +241,10 @@ async function send(){
         addHistory(method,url,headers,body,data.status,data.elapsed_ms);
     }catch(e){
         if(e.name==='AbortError'){
-            setResponse('♿️ 已取消 ♿️');
+            setResponse('已取消');
             $('statusBar').innerHTML='<span class="status-err">已取消</span>';
         }else{
-            setResponse('♿️ 请求失败: '+e.message+' ♿️');
+            setResponse('请求失败: '+e.message);
             $('statusBar').innerHTML='<span class="status-err">失败</span>';
         }
     }finally{
@@ -221,12 +266,15 @@ function showResponse(data){
     $('respHeaders').innerHTML=entries.length
         ?entries.map(([k,v])=>`<div class="hdr-line"><span class="json-key">${esc(k)}:</span><span class="hdr-val">${esc(v)}</span></div>`).join('')
         :'暂无响应头';
-    let cls=data.status<400?'status-ok':'status-err';
-    $('statusBar').innerHTML=`状态: <span class="${cls}">${data.status}</span> | 耗时: ${data.elapsed_ms}ms | 大小: ${fmtSize(byteLen(data.body))}`;
+    $('statusBar').innerHTML=`<span class="chip ${sClass(data.status)}">${data.status}</span> <span class="dim">·</span> ${data.elapsed_ms}ms <span class="dim">·</span> ${fmtSize(byteLen(data.body))}`;
 }
 
 function setResponse(text){
     $('response').textContent=text;
+}
+
+function setLoading(){
+    $('response').innerHTML='<div class="loading">请求中<span class="dot"></span><span class="dot"></span><span class="dot"></span></div>';
 }
 
 function setResponseHTML(html){
@@ -268,7 +316,7 @@ function addHistory(method,url,headers,body,status,elapsed){
     // headers 现在是 [name,value] 数组，只过滤敏感头，重名保留
     let safeHeaders=(headers||[]).filter(([k])=>!SENSITIVE_HEADERS.test(k));
     let omitted=!!body&&body.length>MAX_STORED_BODY;
-    history.unshift({method,url,headers:safeHeaders,body:omitted?null:body,bodyOmitted:omitted,status,elapsed,time:new Date().toLocaleTimeString()});
+    history.unshift({method,url,headers:safeHeaders,body:omitted?null:body,bodyOmitted:omitted,status,elapsed,time:new Date().toLocaleTimeString('zh-CN',{hour12:false})});
     if(history.length>20)history.pop();
     saveHistory();
     renderHistory();
@@ -278,6 +326,7 @@ function loadHistory(i){
     let h=history[i];
     if(!h)return;
     $('method').value=h.method;
+    syncMethodColor();
     $('url').value=h.url;
     $('body').value=h.body||'';
     // 当初因为太大没入库的请求体，别让占位文案被当成内容发出去
@@ -305,9 +354,9 @@ function renderHistory(){
     $('historyList').innerHTML=history.length
         ?history.map((h,i)=>`
             <div class="history-item" onclick="loadHistory(${i})">
-                <span class="history-method">${esc(h.method)}</span>
-                <span class="history-url">${esc(h.url)}</span>
-                <span class="history-status ${h.status<400?'status-ok':'status-err'}">${esc(h.status)}</span>
+                <span class="history-method ${mClass(h.method)}">${esc(h.method)}</span>
+                <span class="history-url" title="${escAttr(h.url)}">${esc(h.url)}</span>
+                <span class="history-status"><span class="chip ${sClass(h.status)}">${esc(h.status)}</span></span>
                 <span class="history-time">${esc(h.time)}</span>
             </div>`).join('')
         :'<div class="history-empty">暂无历史记录</div>';
@@ -319,6 +368,7 @@ document.addEventListener('keydown',e=>{
 
 addHeader();
 renderHistory();
+syncMethodColor();
 </script>
 </body>
 </html>

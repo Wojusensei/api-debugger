@@ -120,6 +120,7 @@ async fn local_origin_guard(
 // 错误类型（携带可读信息返回给前端）
 // ====================
 
+#[derive(Debug)]
 struct ApiError {
     status: StatusCode,
     message: String,
@@ -467,5 +468,203 @@ mod unit_tests {
         .unwrap_err();
         assert_eq!(err.status, StatusCode::BAD_REQUEST);
         assert!(err.message.contains("无效的 HTTP 方法"), "{}", err.message);
+    }
+}
+
+/// 代理转发的集成测试：起真实的本地 mock 服务，验证转发行为
+#[cfg(test)]
+mod proxy_tests {
+    use super::*;
+
+    use std::io::{Read, Write};
+    use std::time::Duration;
+
+    fn api_req(
+        method: &str,
+        url: &str,
+        headers: Vec<(String, String)>,
+        body: Option<String>,
+    ) -> ApiRequest {
+        ApiRequest {
+            method: method.into(),
+            url: url.into(),
+            headers,
+            body,
+        }
+    }
+
+    /// 一次性 mock：accept 一个连接，把收到的请求回传给测试，再回预置响应
+    fn spawn_mock(response: Vec<u8>) -> (SocketAddr, std::sync::mpsc::Receiver<String>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let Ok((mut sock, _)) = listener.accept() else {
+                return;
+            };
+            let mut buf = Vec::new();
+            let mut tmp = [0u8; 4096];
+            loop {
+                match sock.read(&mut tmp) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        buf.extend_from_slice(&tmp[..n]);
+                        let text = String::from_utf8_lossy(&buf);
+                        if let Some(pos) = text.find("\r\n\r\n") {
+                            let clen = text[..pos]
+                                .lines()
+                                .filter_map(|l| {
+                                    let (k, v) = l.split_once(':')?;
+                                    k.trim()
+                                        .eq_ignore_ascii_case("content-length")
+                                        .then(|| v.trim().parse::<usize>().ok())?
+                                })
+                                .next()
+                                .unwrap_or(0);
+                            if buf.len() >= pos + 4 + clen {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            let _ = tx.send(String::from_utf8_lossy(&buf).into_owned());
+            // 客户端可能中途断开（体积上限测试），写失败无所谓
+            let _ = sock.write_all(&response);
+            let _ = sock.flush();
+        });
+        (addr, rx)
+    }
+
+    #[tokio::test]
+    async fn forwards_method_headers_body_and_keeps_duplicate_set_cookie() {
+        let (addr, rx) = spawn_mock(
+            b"HTTP/1.1 200 OK\r\nSet-Cookie: a=1; Path=/\r\nSet-Cookie: b=2; Path=/\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nhello".to_vec(),
+        );
+        let headers = vec![
+            ("x-dup".to_string(), "1".to_string()),
+            ("x-dup".to_string(), "2".to_string()),
+        ];
+        let resp = execute_request(
+            &Client::new(),
+            &api_req("patch", &format!("http://{addr}/echo"), headers, Some("payload".into())),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(resp.status, 200);
+        assert_eq!(resp.body, "hello");
+        let set_cookies: Vec<_> = resp.headers.iter().filter(|(k, _)| k == "set-cookie").collect();
+        assert_eq!(set_cookies.len(), 2, "重复的 Set-Cookie 都要保留");
+        assert!(resp.elapsed_ms < 5000, "本机回环不该慢");
+
+        let sent = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(sent.starts_with("PATCH /echo HTTP/1.1"), "方法要大写化:\n{sent}");
+        assert_eq!(sent.matches("x-dup").count(), 2, "重名请求头都要发出去");
+        assert!(sent.contains("payload"), "请求体要转发");
+    }
+
+    #[tokio::test]
+    async fn empty_body_is_not_attached() {
+        let (addr, rx) = spawn_mock(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n".to_vec());
+        let resp = execute_request(
+            &Client::new(),
+            &api_req("GET", &format!("http://{addr}/"), vec![], Some(String::new())),
+        )
+        .await
+        .unwrap();
+        assert_eq!(resp.status, 204);
+        let sent = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            !sent.to_ascii_lowercase().contains("content-length:"),
+            "空 body 不该带 content-length:\n{sent}"
+        );
+    }
+
+    #[tokio::test]
+    async fn timeout_maps_to_friendly_error() {
+        // mock 收到请求后拖 1.5 秒才响应，client 只等 300ms
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let Ok((mut sock, _)) = listener.accept() else {
+                return;
+            };
+            let mut tmp = [0u8; 1024];
+            let _ = sock.read(&mut tmp);
+            std::thread::sleep(Duration::from_millis(1500));
+            let _ = sock.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+        });
+        let client = Client::builder().timeout(Duration::from_millis(300)).build().unwrap();
+        let err = execute_request(
+            &client,
+            &api_req("GET", &format!("http://{addr}/"), vec![], None),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, StatusCode::BAD_GATEWAY);
+        assert!(err.message.contains("超时"), "{}", err.message);
+    }
+
+    #[tokio::test]
+    async fn oversized_response_is_cut_off() {
+        // 11MB 响应体 > 10MB 上限，读到达标就该停，不能全收
+        let mut response = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".to_vec();
+        response.extend(std::iter::repeat_n(b'a', 11 * 1024 * 1024));
+        let (addr, _rx) = spawn_mock(response);
+        let err = execute_request(
+            &Client::new(),
+            &api_req("GET", &format!("http://{addr}/"), vec![], None),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, StatusCode::BAD_GATEWAY);
+        assert!(err.message.contains("上限"), "{}", err.message);
+    }
+
+    #[tokio::test]
+    async fn fuzz_light_weird_inputs_never_panic() {
+        // 固定的怪异输入矩阵：任何组合都不许 panic，且都不该成功（没有可达目标）
+        let client = Client::new();
+        let urls = [
+            "",
+            "http://",
+            "://x",
+            "http:///",
+            "http://[::1",
+            "http://用户:密码@127.0.0.1:9/",
+            "https://127.0.0.1:99999/",
+            "file:",
+            "http://127.0.0.1:0/",
+            "%%%",
+            "http://exa mple.com/",
+        ];
+        let methods = ["", "get", "PATCH", "TRACE", "CONNECT", "G3T", "POST\n", "OPTIONS"];
+        let header_sets: Vec<Vec<(String, String)>> = vec![
+            vec![],
+            vec![("".into(), "".into())],
+            vec![("x".into(), "".into())],
+            vec![("主题".into(), "值".into())],
+            vec![("a".repeat(200), "v".into())],
+            vec![("x".into(), "v".repeat(9000))],
+        ];
+        let mut count = 0;
+        for m in methods {
+            for u in urls {
+                let r = execute_request(&client, &api_req(m, u, vec![], None)).await;
+                assert!(r.is_err(), "`{m} {u}` 应当失败而非成功");
+                count += 1;
+            }
+        }
+        for h in &header_sets {
+            let r = execute_request(
+                &client,
+                &api_req("GET", "http://127.0.0.1:0/", h.clone(), Some("x".repeat(300))),
+            )
+            .await;
+            assert!(r.is_err());
+            count += 1;
+        }
+        assert!(count >= 80, "矩阵不应缩水");
     }
 }

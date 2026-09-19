@@ -284,18 +284,7 @@ async fn main() {
         .unwrap_or(5000);
     let state = Arc::new(AppState { client, port });
 
-    let static_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("static");
-
-    let app = Router::new()
-        .route("/api/send", post(send_request_post))
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            local_origin_guard,
-        ))
-        .fallback_service(ServeDir::new(static_dir))
-        // 请求体上限与响应体上限保持一致（axum 默认只有 2MB）
-        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
-        .with_state(state);
+    let app = build_router(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     println!("[*] API 调试器已启动: http://{}", addr);
@@ -314,6 +303,21 @@ async fn main() {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .unwrap();
+}
+
+/// 路由与中间件的完整装配，main 和测试共用同一份
+fn build_router(state: Arc<AppState>) -> Router {
+    let static_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("static");
+    Router::new()
+        .route("/api/send", post(send_request_post))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            local_origin_guard,
+        ))
+        .fallback_service(ServeDir::new(static_dir))
+        // 请求体上限与响应体上限保持一致（axum 默认只有 2MB）
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
+        .with_state(state)
 }
 
 async fn shutdown_signal() {

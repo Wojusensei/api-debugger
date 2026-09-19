@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: Rust 测试与静态检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: 单元与集成测试
+        run: cargo test --all-targets
+      - name: clippy（只报告，不卡门）
+        run: cargo clippy --all-targets
+
+  frontend:
+    name: 前端逻辑测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 前端测试（零依赖，node:test）
+        run: node --test tests/frontend.test.mjs

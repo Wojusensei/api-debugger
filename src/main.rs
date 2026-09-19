@@ -84,7 +84,7 @@ fn is_local_hostname(host: &str) -> bool {
         return false;
     }
     // 冒号后面的必须是合法端口号，别让垃圾段混过去
-    port.map_or(true, |p| p.parse::<u16>().is_ok())
+    port.is_none_or(|p| p.parse::<u16>().is_ok())
 }
 
 async fn local_origin_guard(
@@ -182,10 +182,8 @@ async fn execute_request(
         req_builder = req_builder.header(name, value);
     }
 
-    if let Some(body) = &req.body {
-        if !body.is_empty() {
-            req_builder = req_builder.body(body.clone());
-        }
+    if let Some(body) = req.body.as_ref().filter(|b| !b.is_empty()) {
+        req_builder = req_builder.body(body.clone());
     }
 
     let start = Instant::now();

@@ -668,3 +668,196 @@ mod proxy_tests {
         assert!(count >= 80, "矩阵不应缩水");
     }
 }
+
+/// 路由层的集成测试：直接调 build_router 装配出的服务，覆盖守卫与方法限制
+#[cfg(test)]
+mod router_tests {
+    use super::*;
+
+    use axum::body::{to_bytes, Body};
+    use axum::http::Request as HttpRequest;
+    use tower::ServiceExt;
+
+    use std::io::{Read, Write};
+
+    fn test_app() -> Router {
+        build_router(Arc::new(AppState {
+            client: Client::new(),
+            port: 5000,
+        }))
+    }
+
+    fn api_json(method: &str, url: &str) -> String {
+        format!(r#"{{"method":"{method}","url":"{url}","headers":[],"body":null}}"#)
+    }
+
+    async fn post_send(
+        app: Router,
+        host: Option<&str>,
+        origin: Option<&str>,
+        body: String,
+    ) -> axum::response::Response {
+        let mut builder = HttpRequest::builder()
+            .method("POST")
+            .uri("/api/send")
+            .header("content-type", "application/json");
+        if let Some(h) = host {
+            builder = builder.header("host", h);
+        }
+        if let Some(o) = origin {
+            builder = builder.header("origin", o);
+        }
+        app.oneshot(builder.body(Body::from(body)).unwrap()).await.unwrap()
+    }
+
+    fn spawn_mock(response: &'static [u8]) -> SocketAddr {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let Ok((mut sock, _)) = listener.accept() else {
+                return;
+            };
+            let mut tmp = [0u8; 4096];
+            let _ = sock.read(&mut tmp);
+            let _ = sock.write_all(response);
+        });
+        addr
+    }
+
+    #[tokio::test]
+    async fn blocks_cross_site_origin() {
+        let resp = post_send(
+            test_app(),
+            Some("127.0.0.1:5000"),
+            Some("http://evil.com"),
+            api_json("GET", "http://127.0.0.1:9/"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn blocks_origin_null() {
+        // sandboxed iframe 会发 Origin: null，同样要拦
+        let resp = post_send(
+            test_app(),
+            Some("127.0.0.1:5000"),
+            Some("null"),
+            api_json("GET", "http://127.0.0.1:9/"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn blocks_spoofed_host() {
+        let resp = post_send(
+            test_app(),
+            Some("evil.com"),
+            None,
+            api_json("GET", "http://127.0.0.1:9/"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn local_origin_passes_guard_end_to_end() {
+        let addr = spawn_mock(
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\nok",
+        );
+        let resp = post_send(
+            test_app(),
+            Some("127.0.0.1:5000"),
+            Some("http://127.0.0.1:5000"),
+            api_json("GET", &format!("http://{addr}/")),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK, "本机 Origin 应放行");
+        let body = to_bytes(resp.into_body(), 1_000_000).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["status"], 200);
+        assert_eq!(v["body"], "ok");
+    }
+
+    #[tokio::test]
+    async fn get_api_send_is_405() {
+        let req = HttpRequest::builder()
+            .method("GET")
+            .uri("/api/send")
+            .header("host", "127.0.0.1:5000")
+            .body(Body::empty())
+            .unwrap();
+        let resp = test_app().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+    }
+
+    #[tokio::test]
+    async fn invalid_url_returns_json_error_body() {
+        let resp = post_send(
+            test_app(),
+            Some("127.0.0.1:5000"),
+            None,
+            api_json("GET", "not a url"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(resp.into_body(), 1_000_000).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(v["error"].as_str().unwrap().contains("URL 无效"));
+    }
+
+    #[tokio::test]
+    async fn oversized_request_body_is_413() {
+        // 11MB > 10MB 上限，JSON 都不用解析就该拒
+        let raw = format!(
+            r#"{{"method":"POST","url":"http://127.0.0.1:9/","headers":[],"body":"{}"}}"#,
+            "x".repeat(11 * 1024 * 1024)
+        );
+        let resp = post_send(test_app(), Some("127.0.0.1:5000"), None, raw).await;
+        assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn static_index_is_served() {
+        let req = HttpRequest::builder()
+            .method("GET")
+            .uri("/")
+            .header("host", "127.0.0.1:5000")
+            .body(Body::empty())
+            .unwrap();
+        let resp = test_app().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn concurrent_requests_are_stable() {
+        // 20 路并发各打各的 mock，路由/守卫/handler/客户端全链路都不该卡死或串包
+        let app = test_app();
+        let targets: Vec<SocketAddr> = (0..20)
+            .map(|_| {
+                spawn_mock(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+            })
+            .collect();
+        let tasks: Vec<_> = targets
+            .into_iter()
+            .map(|addr| {
+                let app = app.clone();
+                tokio::spawn(async move {
+                    let req = HttpRequest::builder()
+                        .method("POST")
+                        .uri("/api/send")
+                        .header("content-type", "application/json")
+                        .header("host", "127.0.0.1:5000")
+                        .body(Body::from(api_json("GET", &format!("http://{addr}/"))))
+                        .unwrap();
+                    let resp = app.oneshot(req).await.unwrap();
+                    assert_eq!(resp.status(), StatusCode::OK);
+                })
+            })
+            .collect();
+        for t in tasks {
+            t.await.unwrap();
+        }
+    }
+}

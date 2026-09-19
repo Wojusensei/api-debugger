@@ -34,7 +34,7 @@ const MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
 // 数据结构定义
 // ====================
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct ApiRequest {
     method: String,
     url: String,
@@ -43,7 +43,7 @@ struct ApiRequest {
     body: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 struct ApiResponse {
     status: u16,
     headers: Vec<(String, String)>,
@@ -65,16 +65,26 @@ struct AppState {
 // ====================
 
 fn is_local_hostname(host: &str) -> bool {
-    // 兼容 IPv6 字面量（如 [::1]:5000）
-    let hostname = if let Some(rest) = host.strip_prefix('[') {
-        rest.split(']').next().unwrap_or("")
+    // Host 头三种形态："hostname:port"、"[ipv6]:port"、裸 IPv6（::1，多个冒号无方括号）
+    let (hostname, port) = if let Some(rest) = host.strip_prefix('[') {
+        match rest.split_once(']') {
+            Some((hn, after)) => (hn, after.strip_prefix(':')),
+            None => return false,
+        }
+    } else if host.matches(':').count() == 1 {
+        let (hn, p) = host.split_once(':').unwrap();
+        (hn, Some(p))
     } else {
-        host.split(':').next().unwrap_or("")
+        (host, None)
     };
-    matches!(
+    if !matches!(
         hostname.to_ascii_lowercase().as_str(),
         "127.0.0.1" | "localhost" | "::1"
-    )
+    ) {
+        return false;
+    }
+    // 冒号后面的必须是合法端口号，别让垃圾段混过去
+    port.map_or(true, |p| p.parse::<u16>().is_ok())
 }
 
 async fn local_origin_guard(
@@ -323,4 +333,139 @@ fn build_router(state: Arc<AppState>) -> Router {
 async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
     println!("\n[*] 收到 Ctrl+C，等待进行中的请求处理完…");
+}
+
+// ====================
+// 测试
+// ====================
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+
+    fn api_req(
+        method: &str,
+        url: &str,
+        headers: Vec<(String, String)>,
+        body: Option<String>,
+    ) -> ApiRequest {
+        ApiRequest {
+            method: method.into(),
+            url: url.into(),
+            headers,
+            body,
+        }
+    }
+
+    #[test]
+    fn local_hostname_accepts_loopback_forms() {
+        for host in [
+            "127.0.0.1:5000",
+            "localhost:5000",
+            "LOCALHOST:5000",
+            "LocalHost:80",
+            "[::1]:5000",
+            "127.0.0.1",
+            "::1",
+            "localhost:05000",
+        ] {
+            assert!(is_local_hostname(host), "`{host}` 应视为本机");
+        }
+    }
+
+    #[test]
+    fn local_hostname_rejects_spoof_and_remote() {
+        for host in [
+            "",
+            "evil.com",
+            "localhost.evil.com",
+            "127.0.0.1.evil.com",
+            // 第一个冒号后面必须是合法端口，垃圾段不允许混过校验
+            "localhost:5000.evil.com",
+            "localhost:99999",
+            "example.com:5000",
+            "0.0.0.0:5000",
+            "127.0.0.2:5000",
+        ] {
+            assert!(!is_local_hostname(host), "`{host}` 不应视为本机");
+        }
+    }
+
+    #[test]
+    fn redact_url_strips_credentials() {
+        assert_eq!(
+            redact_url("http://alice:s3cret@example.com/x"),
+            "http://example.com/x"
+        );
+        assert_eq!(redact_url("http://alice@example.com/"), "http://example.com/");
+        assert_eq!(
+            redact_url("http://bob:pw@127.0.0.1:9099/echo"),
+            "http://127.0.0.1:9099/echo"
+        );
+        // 没有凭据时原样保留
+        assert_eq!(
+            redact_url("https://example.com/a?b=1"),
+            "https://example.com/a?b=1"
+        );
+        // 解析失败时原样返回，不 panic
+        assert_eq!(redact_url("not a url"), "not a url");
+    }
+
+    #[tokio::test]
+    async fn invalid_url_maps_to_400() {
+        let err = execute_request(&Client::new(), &api_req("GET", "not a url", vec![], None))
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, StatusCode::BAD_REQUEST);
+        assert!(err.message.contains("URL 无效"), "{}", err.message);
+    }
+
+    #[tokio::test]
+    async fn non_http_scheme_maps_to_400() {
+        for url in ["file:///etc/passwd", "ftp://example.com/x"] {
+            let err = execute_request(&Client::new(), &api_req("GET", url, vec![], None))
+                .await
+                .unwrap_err();
+            assert_eq!(err.status, StatusCode::BAD_REQUEST, "{url}");
+            assert!(err.message.contains("协议"), "{}", err.message);
+        }
+    }
+
+    #[tokio::test]
+    async fn crlf_in_header_value_maps_to_400() {
+        // 头注入是最经典的攻击面，必须在这里被挡住
+        let headers = vec![("x-evil".into(), "a\r\nX-Injected: 1".into())];
+        let err = execute_request(
+            &Client::new(),
+            &api_req("GET", "http://127.0.0.1:9/", headers, None),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, StatusCode::BAD_REQUEST);
+        assert!(err.message.contains("x-evil"), "{}", err.message);
+    }
+
+    #[tokio::test]
+    async fn invalid_header_name_maps_to_400() {
+        let headers = vec![("bad name".into(), "v".into())];
+        let err = execute_request(
+            &Client::new(),
+            &api_req("GET", "http://127.0.0.1:9/", headers, None),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn invalid_method_token_maps_to_400() {
+        let err = execute_request(
+            &Client::new(),
+            &api_req("BAD METHOD", "http://127.0.0.1:9/", vec![], None),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, StatusCode::BAD_REQUEST);
+        assert!(err.message.contains("无效的 HTTP 方法"), "{}", err.message);
+    }
 }
